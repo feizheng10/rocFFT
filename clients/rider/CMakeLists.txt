@@ -77,3 +77,10 @@ endif( )
 
 set_target_properties( rocfft-rider PROPERTIES DEBUG_POSTFIX "-d" CXX_EXTENSIONS NO )
 set_target_properties( rocfft-rider PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/staging" )
+
+rocm_install_targets(
+  TARGETS rocfft-rider
+  COMPONENT_NAME clients
+)
+
+

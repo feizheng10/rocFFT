@@ -103,3 +103,9 @@ target_link_libraries( rocfft-test PRIVATE Threads::Threads )
 
 set_target_properties( rocfft-test PROPERTIES DEBUG_POSTFIX "-d" CXX_EXTENSIONS NO )
 set_target_properties( rocfft-test PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/staging" )
+
+rocm_install_targets(
+  TARGETS rocfft-test
+  COMPONENT_NAME clients
+)
+

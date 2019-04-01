@@ -58,3 +58,15 @@ endif( )
 if( BUILD_CLIENTS_RIDER )
   add_subdirectory( rider )
 endif( )
+
+if (BUILD_CLIENTS_SAMPLES OR  BUILD_CLIENTS_TESTS OR BUILD_CLIENTS_SELFTEST OR BUILD_CLIENTS_RIDER)
+  rocm_create_package(
+    NAME rocfft
+    DESCRIPTION "Radeon Open Compute FFT library"
+    MAINTAINER "Kent Knox <kent.knox@amd.com>"
+    LDCONFIG
+    LDCONFIG_DIR ${ROCFFT_CONFIG_DIR}
+    COMPONENT_NAME clients)
+  message("***************************111")  
+endif()
+

@@ -366,7 +366,9 @@ pushd .
   if [[ "${install_package}" == true ]]; then
     make package
     check_exit_code
-
+    if [[ "${build_clients}" == true ]]; then
+        make package_clients
+    fi
     case "${ID}" in
       ubuntu)
         elevate_if_not_root dpkg -i rocfft-*.deb
