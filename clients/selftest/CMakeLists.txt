@@ -84,5 +84,6 @@ set_target_properties( rocfft-selftest PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PR
 rocm_install_targets(
   TARGETS rocfft-selftest
   COMPONENT_NAME clients
+  PREFIX rocfft
 )
 

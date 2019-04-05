@@ -67,6 +67,5 @@ if (BUILD_CLIENTS_SAMPLES OR  BUILD_CLIENTS_TESTS OR BUILD_CLIENTS_SELFTEST OR B
     LDCONFIG
     LDCONFIG_DIR ${ROCFFT_CONFIG_DIR}
     COMPONENT_NAME clients)
-  message("***************************111")  
 endif()
 

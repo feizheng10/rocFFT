@@ -81,6 +81,7 @@ set_target_properties( rocfft-rider PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJE
 rocm_install_targets(
   TARGETS rocfft-rider
   COMPONENT_NAME clients
+  PREFIX rocfft
 )
 
 
