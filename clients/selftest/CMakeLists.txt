@@ -85,5 +85,6 @@ rocm_install_targets(
   TARGETS rocfft-selftest
   COMPONENT_NAME clients
   PREFIX rocfft
+  DEPENDS roc::rocfft
 )
 
