@@ -157,13 +157,9 @@ install_packages( )
 
     case "${ID}" in
 	ubuntu)
-	    echo ${library_dependencies_ubuntu[@]}
-	    #exit
 	    # elevate_if_not_root apt update
-	    # install_apt_packages "${library_dependencies_ubuntu[@]}"
+	    install_apt_packages "${library_dependencies_ubuntu[@]}"
 
-	    echo ${client_dependencies_ubuntu[@]}
-	    exit
 	    if [[ "${build_clients}" == true ]]; then
 		install_apt_packages "${client_dependencies_ubuntu[@]}"
 	    fi
@@ -319,7 +315,7 @@ if [[ "${install_dependencies}" == true ]]; then
     ${cmake_executable} -DBUILD_BOOST=OFF ../../deps
     # ${cmake_executable} -DCMAKE_INSTALL_PREFIX=deps-install -DBUILD_BOOST=OFF ../../deps
     make -j$(nproc)
-    # make install
+    elevate_if_not_root make install
     popd
 fi
 
