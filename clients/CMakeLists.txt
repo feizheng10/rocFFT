@@ -59,7 +59,8 @@ if( BUILD_CLIENTS_RIDER )
   add_subdirectory( rider )
 endif( )
 
-# TODO: move to rocm-cmake
+# This is a simple and temporary way to package all clients with dpkg on ubuntu.
+# We need a better solution to share with other projects in rocm-cmake.
 include(CMakeParseArguments)
 
 function(rocm_create_package_clients)
