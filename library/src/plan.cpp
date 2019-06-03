@@ -741,6 +741,12 @@ void TreeNode::RecursiveBuildTree()
         copyHeadPlan->dimension = dimension;
         copyHeadPlan->length    = length;
 
+        if(!IsRCsimple())
+        {
+            copyHeadPlan->length[0] /= 2;
+            copyHeadPlan->outArrayType = rocfft_array_type_complex_interleaved;
+        }
+
         if(inArrayType == rocfft_array_type_real)
             copyHeadPlan->scheme = CS_KERNEL_COPY_R_TO_CMPLX;
         else if(outArrayType == rocfft_array_type_real)
@@ -754,6 +760,12 @@ void TreeNode::RecursiveBuildTree()
         fftPlan->dimension = dimension;
         fftPlan->length    = length;
 
+        if(!IsRCsimple())
+        {
+            fftPlan->length[0] /= 2;
+            fftPlan->inArrayType = rocfft_array_type_complex_interleaved;
+        }
+
         fftPlan->RecursiveBuildTree();
         childNodes.push_back(fftPlan);
 
@@ -762,6 +774,11 @@ void TreeNode::RecursiveBuildTree()
 
         copyTailPlan->dimension = dimension;
         copyTailPlan->length    = length;
+
+        if(!IsRCsimple())
+        {
+            copyTailPlan->length[0] /= 2;
+        }
 
         if(inArrayType == rocfft_array_type_real)
             copyTailPlan->scheme = CS_KERNEL_COPY_CMPLX_TO_HERM;
@@ -1470,10 +1487,20 @@ void TreeNode::TraverseTreeAssignBuffersLogicA(OperatingBuffer& flipIn,
     {
         if(scheme == CS_REAL_TRANSFORM_USING_CMPLX)
         {
-            flipIn  = OB_TEMP_CMPLX_FOR_REAL;
-            flipOut = OB_TEMP;
+            if(IsRCsimple())
+            {
+                flipIn  = OB_TEMP_CMPLX_FOR_REAL;
+                flipOut = OB_TEMP;
 
-            obOutBuf = OB_TEMP_CMPLX_FOR_REAL;
+                obOutBuf = OB_TEMP_CMPLX_FOR_REAL;
+            }
+            else
+            {
+                flipIn  = OB_USER_OUT;
+                flipOut = OB_USER_OUT;
+
+                obOutBuf = OB_USER_OUT;
+            }
         }
         else if(scheme == CS_BLUESTEIN)
         {
@@ -1494,24 +1521,73 @@ void TreeNode::TraverseTreeAssignBuffersLogicA(OperatingBuffer& flipIn,
     if(scheme == CS_REAL_TRANSFORM_USING_CMPLX)
     {
         assert(parent == nullptr);
-        childNodes[0]->obIn  = OB_USER_IN;
-        childNodes[0]->obOut = OB_TEMP_CMPLX_FOR_REAL;
 
-        childNodes[1]->obIn  = OB_TEMP_CMPLX_FOR_REAL;
-        childNodes[1]->obOut = OB_TEMP_CMPLX_FOR_REAL;
-        childNodes[1]->TraverseTreeAssignBuffersLogicA(flipIn, flipOut, obOutBuf);
-        size_t cs = childNodes[1]->childNodes.size();
-        if(cs)
+        if(IsRCsimple())
         {
-            assert(childNodes[1]->childNodes[0]->obIn == OB_TEMP_CMPLX_FOR_REAL);
-            assert(childNodes[1]->childNodes[cs - 1]->obOut == OB_TEMP_CMPLX_FOR_REAL);
+            childNodes[0]->obIn  = OB_USER_IN;
+            childNodes[0]->obOut = OB_TEMP_CMPLX_FOR_REAL;
+
+            childNodes[1]->obIn  = OB_TEMP_CMPLX_FOR_REAL;
+            childNodes[1]->obOut = OB_TEMP_CMPLX_FOR_REAL;
+            childNodes[1]->TraverseTreeAssignBuffersLogicA(flipIn, flipOut, obOutBuf);
+            size_t cs = childNodes[1]->childNodes.size();
+            if(cs)
+            {
+                assert(childNodes[1]->childNodes[0]->obIn == OB_TEMP_CMPLX_FOR_REAL);
+                assert(childNodes[1]->childNodes[cs - 1]->obOut == OB_TEMP_CMPLX_FOR_REAL);
+            }
+
+            childNodes[2]->obIn  = OB_TEMP_CMPLX_FOR_REAL;
+            childNodes[2]->obOut = OB_USER_OUT;
+
+            obIn  = childNodes[0]->obIn;
+            obOut = childNodes[2]->obOut;
         }
+        else
+        { //TODO: simplify the below
+            if(inArrayType == rocfft_array_type_real)
+            {
+                childNodes[0]->obIn  = OB_USER_IN;
+                childNodes[0]->obOut = OB_USER_IN;
 
-        childNodes[2]->obIn  = OB_TEMP_CMPLX_FOR_REAL;
-        childNodes[2]->obOut = OB_USER_OUT;
+                childNodes[1]->obIn  = OB_USER_IN;
+                childNodes[1]->obOut = OB_USER_OUT;
+                childNodes[1]->TraverseTreeAssignBuffersLogicA(flipIn, flipOut, obOutBuf);
+                size_t cs = childNodes[1]->childNodes.size();
+                if(cs) //FIXME
+                {
+                    assert(childNodes[1]->childNodes[0]->obIn == OB_TEMP_CMPLX_FOR_REAL);
+                    assert(childNodes[1]->childNodes[cs - 1]->obOut == OB_TEMP_CMPLX_FOR_REAL);
+                }
 
-        obIn  = childNodes[0]->obIn;
-        obOut = childNodes[2]->obOut;
+                childNodes[2]->obIn  = OB_USER_OUT;
+                childNodes[2]->obOut = OB_USER_OUT;
+
+                obIn  = childNodes[0]->obIn;
+                obOut = childNodes[2]->obOut;
+            }
+            else
+            {
+                childNodes[0]->obIn  = OB_USER_IN;
+                childNodes[0]->obOut = OB_USER_OUT;
+
+                childNodes[1]->obIn  = OB_USER_OUT;
+                childNodes[1]->obOut = OB_USER_OUT;
+                childNodes[1]->TraverseTreeAssignBuffersLogicA(flipIn, flipOut, obOutBuf);
+                size_t cs = childNodes[1]->childNodes.size();
+                if(cs) //FIXME
+                {
+                    assert(childNodes[1]->childNodes[0]->obIn == OB_TEMP_CMPLX_FOR_REAL);
+                    assert(childNodes[1]->childNodes[cs - 1]->obOut == OB_TEMP_CMPLX_FOR_REAL);
+                }
+
+                childNodes[2]->obIn  = OB_USER_OUT;
+                childNodes[2]->obOut = OB_USER_OUT;
+
+                obIn  = childNodes[0]->obIn;
+                obOut = childNodes[2]->obOut;
+            }
+        }
     }
     else if(scheme == CS_BLUESTEIN)
     {
@@ -1926,14 +2002,16 @@ void TreeNode::TraverseTreeAssignParamsLogicA()
 
         copyHeadPlan->outStride.push_back(1);
         copyHeadPlan->oDist = copyHeadPlan->length[0];
+
         for(size_t index = 1; index < length.size(); index++)
         {
             copyHeadPlan->outStride.push_back(copyHeadPlan->oDist);
             copyHeadPlan->oDist *= length[index];
         }
 
-        fftPlan->inStride  = copyHeadPlan->outStride;
-        fftPlan->iDist     = copyHeadPlan->oDist;
+        fftPlan->inStride = copyHeadPlan->outStride;
+        fftPlan->iDist    = copyHeadPlan->oDist;
+
         fftPlan->outStride = fftPlan->inStride;
         fftPlan->oDist     = fftPlan->iDist;
 

@@ -191,6 +191,27 @@ public:
 
     // logic B - using in-place transposes, todo
     void RecursiveBuildTreeLogicB();
+
+    bool IsRCsimple()
+    {
+        if(parent == nullptr)
+        {
+            if((inArrayType == rocfft_array_type_real) || (outArrayType == rocfft_array_type_real))
+            {
+                if(length.size() == 1)
+                {
+                    if((length[0] % 2 == 0) && (length[0] >= 4) && (length[0] <= 1024)) // current test range
+                        return false;
+                }
+            }
+        }
+        else
+        {
+            return parent->IsRCsimple();
+        }
+
+        return true;
+    }
 };
 
 extern "C" {
