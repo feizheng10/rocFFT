@@ -263,7 +263,7 @@ void PlanPowX(ExecPlan& execPlan)
             }
             else if(execPlan.execSeq[i]->scheme == CS_KERNEL_COPY_R_TO_CMPLX)
             {
-                ptr      = &real2complex;
+                ptr      = &real2complex_pre_process;
                 gp.b_x   = (execPlan.execSeq[i]->length[0] - 1) / 512 + 1;
                 gp.b_y   = execPlan.execSeq[i]->batch;
                 gp.tpb_x = 512;
@@ -271,7 +271,7 @@ void PlanPowX(ExecPlan& execPlan)
             }
             else if(execPlan.execSeq[i]->scheme == CS_KERNEL_COPY_CMPLX_TO_R)
             {
-                ptr      = &complex2real;
+                ptr      = &complex2real_post_process;
                 gp.b_x   = (execPlan.execSeq[i]->length[0] - 1) / 512 + 1;
                 gp.b_y   = execPlan.execSeq[i]->batch;
                 gp.tpb_x = 512;
@@ -279,7 +279,7 @@ void PlanPowX(ExecPlan& execPlan)
             }
             else if(execPlan.execSeq[i]->scheme == CS_KERNEL_COPY_HERM_TO_CMPLX)
             {
-                ptr      = &hermitian2complex;
+                ptr      = &complex2real_pre_process;
                 gp.b_x   = (execPlan.execSeq[i]->length[0] - 1) / 512 + 1;
                 gp.b_y   = execPlan.execSeq[i]->batch;
                 gp.tpb_x = 512;
@@ -287,7 +287,7 @@ void PlanPowX(ExecPlan& execPlan)
             }
             else if(execPlan.execSeq[i]->scheme == CS_KERNEL_COPY_CMPLX_TO_HERM)
             {
-                ptr      = &complex2hermitian;
+                ptr      = &real2complex_post_process;
                 gp.b_x   = (execPlan.execSeq[i]->length[0] - 1) / 512 + 1;
                 gp.b_y   = execPlan.execSeq[i]->batch;
                 gp.tpb_x = 512;
