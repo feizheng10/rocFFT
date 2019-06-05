@@ -415,11 +415,15 @@ void real_1d_pre_post_process(size_t const N,
                               hipStream_t  rocfft_stream)
 {
     const size_t block_size = 512;
-    size_t       blocks     = (N / 4 - 1) / block_size + 1;
+    size_t       blocks     = (N / 4 + 1 - 1) / block_size + 1;
 
     dim3 grid(blocks, high_dimension, batch);
     dim3 threads(block_size, 1, 1);
 
+    //std::cout << "\ngpu debug: run with "
+    //          << "grid " << grid.x << ", " << grid.y << ", " << grid.z << ", block " << threads.x
+    //          << ", " << threads.y << ", " << threads.z
+    //          << std::endl;
     if(d_input == d_output)
     {
         hipLaunchKernelGGL(real_1d_pre_post_process_kernel<T, true, R2C>,
