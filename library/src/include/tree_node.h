@@ -200,7 +200,7 @@ public:
             {
                 if(length.size() == 1)
                 {
-                    if((length[0] % 2 == 0) && (length[0] >= 4) && (length[0] <= 1024)) // current test range
+                    if((length[0] % 2 == 0) && (length[0] >= 4) && (length[0] <= 8192)) // current test range
                         return false;
                 }
             }
