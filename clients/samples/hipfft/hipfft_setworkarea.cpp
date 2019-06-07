@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 /******************************************************************************
 * Copyright (c) 2019 - present Advanced Micro Devices, Inc. All rights reserved.
 *
@@ -20,6 +21,8 @@
 * THE SOFTWARE.
 *******************************************************************************/
 
+=======
+>>>>>>> upstream/develop
 #include <iomanip>
 #include <iostream>
 
