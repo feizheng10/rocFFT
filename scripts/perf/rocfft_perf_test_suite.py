@@ -139,7 +139,7 @@ parser.add_argument('-g', '--gen-ref', dest='gen_ref', action="store_true", help
 parser.add_argument('-p', '--plot', action="store_true", help='plot the results to png')
 parser.add_argument('-m','--mute', action="store_true", help='no print')
 parser.add_argument('--client-prefix',
-    dest='client_prefix', default='./',
+    dest='client_prefix', default='../../build/release/clients/staging/',
     help='Path where the library client is located (default current directory)')
 
 args = parser.parse_args()
