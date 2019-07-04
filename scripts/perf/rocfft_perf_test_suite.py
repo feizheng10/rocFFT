@@ -135,7 +135,7 @@ parser.add_argument('-r', '--ref-dir',
 parser.add_argument('-w', '--work-dir',
     dest='work_dir', default='./',
     help='specify the current working results dirctory(default ./)')
-parser.add_argument('-g', '--gen-ref', action="store_true", help='generate reference')
+parser.add_argument('-g', '--gen-ref', dest='gen_ref', action="store_true", help='generate reference')
 parser.add_argument('-p', '--plot', action="store_true", help='plot the results to png')
 parser.add_argument('-m','--mute', action="store_true", help='no print')
 parser.add_argument('--client-prefix',
@@ -146,6 +146,11 @@ args = parser.parse_args()
 
 elapsed_time = timer()
 
+if args.gen_ref:
+    print "Generate reference in ref directory", args.ref_dir
+else:
+    print "Ref directory", args.ref_dir
+print "Work directory", args.work_dir
 
 config_info = "Check config info with rocm-smi and hipcc\n"
 try:
@@ -158,6 +163,8 @@ try:
 except subprocess.CalledProcessError as e:
     config_info += "Can not find or run /opt/rocm/bin/hipcc --version properly.\n"
 
+if not os.path.exists('perfLog'):
+    os.makedirs('perfLog')
 with open("perfLog/config_info.txt", "w") as config_info_file:
     config_info_file.write(config_info)
 
