@@ -140,7 +140,7 @@ parser.add_argument('-p', '--plot', action="store_true", help='plot the results 
 parser.add_argument('-m','--mute', action="store_true", help='no print')
 parser.add_argument('--client-prefix',
     dest='client_prefix', default='../../build/release/clients/staging/',
-    help='Path where the library client is located (default current directory)')
+    help='Path where the library client is located (default current build release directory)')
 
 args = parser.parse_args()
 
