@@ -246,17 +246,17 @@ namespace StockhamGenerator
         }
 
         /*
-    OffsetCalcBlockCompute when blockCompute is set as ture
-    it calculates the offset to the memory
+        OffsetCalcBlockCompute when blockCompute is set as true
+        it calculates the offset to the memory
 
-    offset_name
-       can be ioOffset, iOffset or oOffset, they are size_t type
-    stride_name
-       can be stride_in or stride_out, they are vector<size_t> type
-    output
-       if true, offset_name2, stride_name2 are enabled
-       else not enabled
-  */
+        offset_name
+            can be ioOffset, iOffset or oOffset, they are size_t type
+        stride_name
+            can be stride_in or stride_out, they are vector<size_t> type
+        output
+            if true, offset_name2, stride_name2 are enabled
+        else not enabled
+        */
 
         // since it is batching process mutiple matrices by default, calculate the
         // offset block
@@ -312,16 +312,16 @@ namespace StockhamGenerator
         }
 
         /*
-    OffsetCalc calculates the offset to the memory
+        OffsetCalc calculates the offset to the memory
 
-    offset_name
-       can be ioOffset, iOffset or oOffset, they are size_t type
-    stride_name
-       can be stride_in or stride_out, they are vector<size_t> type
-    output
-       if true, offset_name2, stride_name2 are enabled
-       else not enabled
-  */
+        offset_name
+            can be ioOffset, iOffset or oOffset, they are size_t type
+        stride_name
+            can be stride_in or stride_out, they are vector<size_t> type
+        output
+            if true, offset_name2, stride_name2 are enabled
+            else not enabled
+        */
 
         inline std::string OffsetCalc(const std::string offset_name1,
                                       const std::string stride_name1,
@@ -333,7 +333,7 @@ namespace StockhamGenerator
             std::string str;
 
             /*===========the comments assume a 16-point
-     * FFT============================================*/
+             * FFT============================================*/
 
             // generate statement like "size_t counter_mod = batch*16 + (me/4);"
             std::string counter_mod;
@@ -380,38 +380,38 @@ namespace StockhamGenerator
 
             /*=======================================================*/
             /*  generate a loop like
-    if(dim == 1){
-        iOffset += counter_mod*strides[1];
-    }
-    else if(dim == 2){
-        int counter_1 = counter_mod / lengths[1];
-        int counter_mod_1 = counter_mod % lengths[1];
-
-        iOffset += counter_1*strides[2] + counter_mod_1*strides[1];
-    }
-    else if(dim == 3){
-        int counter_2 = counter_mod / (lengths[1] * lengths[2]);
-        int counter_mod_2 = counter_mod % (lengths[1] * lengths[2]);
-
-        int counter_1 = counter_mod_2 / lengths[1];
-        int counter_mod_1 = counter_mod_2 % lengths[1];
-
-        iOffset += counter_2*strides[3] + counter_1*strides[2] +
-    counter_mod_1*strides[1];
-    }
-    else{
-        for(int i = dim; i>1; i--){
-            int currentLength = 1;
-            for(int j=1; j<i; j++){
-                currentLength *= lengths[j];
+            if(dim == 1){
+                iOffset += counter_mod*strides[1];
             }
+            else if(dim == 2){
+                int counter_1 = counter_mod / lengths[1];
+                int counter_mod_1 = counter_mod % lengths[1];
 
-            iOffset += (counter_mod / currentLength)*stride[i];
-            counter_mod = counter_mod % currentLength;
-        }
-        ioffset += counter_mod*strides[1];
-    }
-    */
+                iOffset += counter_1*strides[2] + counter_mod_1*strides[1];
+            }
+            else if(dim == 3){
+                int counter_2 = counter_mod / (lengths[1] * lengths[2]);
+                int counter_mod_2 = counter_mod % (lengths[1] * lengths[2]);
+
+                int counter_1 = counter_mod_2 / lengths[1];
+                int counter_mod_1 = counter_mod_2 % lengths[1];
+
+                iOffset += counter_2*strides[3] + counter_1*strides[2] +
+            counter_mod_1*strides[1];
+            }
+            else{
+                for(int i = dim; i>1; i--){
+                    int currentLength = 1;
+                    for(int j=1; j<i; j++){
+                        currentLength *= lengths[j];
+                    }
+
+                    iOffset += (counter_mod / currentLength)*stride[i];
+                    counter_mod = counter_mod % currentLength;
+                }
+                ioffset += counter_mod*strides[1];
+            }
+            */
 
             /*=======================================================*/
             std::string loop;
@@ -479,10 +479,10 @@ namespace StockhamGenerator
         {
 
             /* in principle, the fft_N should be passed as a run-time parameter to
-       kernel (with the name lengths)
-       However, we have to take out the fft_N[0] (length) to calculate the pass,
-       blockCompute related parameter at kernel generation stage
-    */
+               kernel (with the name lengths)
+               However, we have to take out the fft_N[0] (length) to calculate the pass,
+               blockCompute related parameter at kernel generation stage
+            */
             length           = params.fft_N[0];
             workGroupSize    = params.fft_workGroupSize;
             numTrans         = params.fft_numTrans;
@@ -705,12 +705,12 @@ namespace StockhamGenerator
                 GetBlockComputeTable(N, bwd, wgs, lds);
 
                 /*
-      // bwd > t_nt is always ture, TODO: remove
-      KernelCoreSpecs kcs;
-      size_t t_wgs, t_nt;
-      kcs.GetWGSAndNT(N, t_wgs, t_nt);
-      wgs =  (bwd > t_nt) ? wgs : t_wgs;
-      */
+                // bwd > t_nt is always ture, TODO: remove
+                KernelCoreSpecs kcs;
+                size_t t_wgs, t_nt;
+                kcs.GetWGSAndNT(N, t_wgs, t_nt);
+                wgs =  (bwd > t_nt) ? wgs : t_wgs;
+                */
 
                 // printf("N=%d, bwd=%d, wgs=%d, lds=%d\n", N, bwd, wgs, lds);
                 // block width cannot be less than numTrans, math in other parts of code
@@ -720,10 +720,10 @@ namespace StockhamGenerator
         };
 
         /* =====================================================================
-      In this GenerateKernel function
-      Real2Complex Complex2Real features are not available
-      Callback features are not available
-     =================================================================== */
+            In this GenerateKernel function
+            Real2Complex Complex2Real features are not available
+            Callback features are not available
+            =================================================================== */
 
         void GenerateKernel(std::string& str)
         {
@@ -772,11 +772,11 @@ namespace StockhamGenerator
             typename std::vector<Pass<PR>>::const_iterator p;
 
             /* =====================================================================
-        write pass functions
-        passes call butterfly device functions
-        passes use twiddles
-        inplace outof place shared the same pass functions
-       =================================================================== */
+                write pass functions
+                passes call butterfly device functions
+                passes use twiddles
+                inplace outof place shared the same pass functions
+                =================================================================== */
 
             for(size_t d = 0; d < 2; d++)
             {
@@ -857,10 +857,10 @@ namespace StockhamGenerator
             }
 
             /* =====================================================================
-        generate fwd or back ward length-point FFT device functions :
-       encapsulate passes
-        called by kernels which set up shared memory (LDS), offset, etc
-       =================================================================== */
+                generate fwd or back ward length-point FFT device functions :
+                encapsulate passes
+                called by kernels which set up shared memory (LDS), offset, etc
+                =================================================================== */
 
             for(size_t d = 0; d < 2; d++)
             {
@@ -1007,10 +1007,10 @@ namespace StockhamGenerator
             }
 
             /* =====================================================================
-        Generate Main kernels: call passes
-        Generate forward (fwd) cases and backward kernels
-        Generate inplace and outof place kernels
-       =================================================================== */
+                Generate Main kernels: call passes
+                Generate forward (fwd) cases and backward kernels
+                Generate inplace and outof place kernels
+                =================================================================== */
 
             for(int place = 0; place < 2; place++)
             {
@@ -1045,9 +1045,9 @@ namespace StockhamGenerator
                         str += "ip_len"; // inplace
                     str += std::to_string(length) + name_suffix;
                     /* kernel arguments,
-           lengths, strides are transferred to kernel as a run-time parameter.
-           lengths, strides may be high dimension arrays
-        */
+                       lengths, strides are transferred to kernel as a run-time parameter.
+                       lengths, strides may be high dimension arrays
+                    */
                     str += "( ";
                     str += "const " + r2Type + " * __restrict__ twiddles, ";
                     if(blockCompute && name_suffix == "_sbcc")
@@ -1281,9 +1281,8 @@ namespace StockhamGenerator
                     }
 
                     /* =====================================================================
-            Setup memory pointers with offset
-           ===================================================================
-           */
+                        Setup memory pointers with offset
+                       =================================================================== */
 
                     if(placeness == rocfft_placement_inplace)
                     {
@@ -1370,10 +1369,9 @@ namespace StockhamGenerator
                     }
 
                     /* =====================================================================
-            blockCompute only: Read data into shared memory (LDS) for blocked
-           access
-           ===================================================================
-           */
+                        blockCompute only: Read data into shared memory (LDS) for blocked
+                        access
+                        =================================================================== */
 
                     if(blockCompute)
                     {
@@ -1386,6 +1384,8 @@ namespace StockhamGenerator
 
                         // get offset
                         std::string bufOffset;
+
+                        str += "\t\tT R0;\n";
 
                         for(size_t c = 0; c < 2; c++)
                         {
@@ -1410,7 +1410,7 @@ namespace StockhamGenerator
                                 bufOffset += ")*stride_in[0] + t*stride_in[0]*";
                                 bufOffset += std::to_string(blockWGS / blockWidth);
 
-                                str += "\t\tT R0";
+                                str += "\t\tR0";
                                 str += comp;
                                 str += " = ";
                                 str += readBuf;
@@ -1420,7 +1420,7 @@ namespace StockhamGenerator
                             }
                             else
                             {
-                                str += "\t\tT R0";
+                                str += "\t\tR0";
                                 str += comp;
                                 str += " = ";
                                 str += readBuf;
@@ -1461,10 +1461,9 @@ namespace StockhamGenerator
                     }
 
                     /* =====================================================================
-            Set rw and 'me'
-            rw string also contains 'b'
-           ===================================================================
-           */
+                        Set rw and 'me'
+                        rw string also contains 'b'
+                        =================================================================== */
 
                     std::string rw, me;
 
@@ -1522,9 +1521,8 @@ namespace StockhamGenerator
                     }
 
                     /* =====================================================================
-            call FFT devices functions in the generated kernel
-           ===================================================================
-           */
+                        call FFT devices functions in the generated kernel
+                        ===================================================================*/
 
                     if(blockCompute) // for blockCompute, a loop is required, inBuf, outBuf
                     // would be overwritten
