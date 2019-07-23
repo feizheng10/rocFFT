@@ -11,6 +11,7 @@
 #include "generator.stockham.h"
 #include <list>
 #include <stdio.h>
+#include <iterator>
 
 // FFT Stockham Autosort Method
 //
@@ -720,17 +721,14 @@ namespace StockhamGenerator
         };
 
         /* =====================================================================
-            In this GenerateKernel function
-            Real2Complex Complex2Real features are not available
-            Callback features are not available
+                write pass functions
+                passes call butterfly device functions
+                passes use twiddles
+                inplace outof place shared the same pass functions
             =================================================================== */
-
-        void GenerateKernel(std::string& str)
+        void GeneratePassesKernel(std::string& str)
         {
-            // Base type
-            std::string rType = RegBaseType<PR>(1);
-            // Vector type
-            std::string r2Type = RegBaseType<PR>(2);
+            typename std::vector<Pass<PR>>::const_iterator p;
 
             bool inInterleaved; // Input is interleaved format
             bool outInterleaved; // Output is interleaved format
@@ -744,48 +742,22 @@ namespace StockhamGenerator
                       ? true
                       : false;
 
-            // use interleaved LDS when halfLds constraint absent
-            bool ldsInterleaved = inInterleaved || outInterleaved;
-            ldsInterleaved      = halfLds ? false : ldsInterleaved;
-            ldsInterleaved      = blockCompute ? true : ldsInterleaved;
-
             // Input is real format
             bool inReal = params.fft_inputLayout == rocfft_array_type_real;
             // Output is real format
             bool outReal = params.fft_outputLayout == rocfft_array_type_real;
 
-            // str += "#include \"common.h\"\n";
-            str += "#include \"rocfft_butterfly_template.h\"\n\n";
-
-            std::string sfx = FloatSuffix<PR>();
-
-            // bool cReg = linearRegs ? true : false;
-            // printf("cReg is %d \n", cReg);
-
-            // Generate butterflies for all unique radices
-            std::list<size_t> uradices;
-            for(std::vector<size_t>::const_iterator r = radices.begin(); r != radices.end(); r++)
-                uradices.push_back(*r);
-
-            uradices.sort();
-            uradices.unique();
-            typename std::vector<Pass<PR>>::const_iterator p;
-
-            /* =====================================================================
-                write pass functions
-                passes call butterfly device functions
-                passes use twiddles
-                inplace outof place shared the same pass functions
-                =================================================================== */
-
             for(size_t d = 0; d < 2; d++)
             {
                 bool fwd = d ? false : true;
-
                 double scale = fwd ? params.fft_fwdScale : params.fft_backScale;
 
                 for(p = passes.begin(); p != passes.end(); p++)
                 {
+                    bool ldsInterleaved = inInterleaved || outInterleaved;
+                    ldsInterleaved      = halfLds ? false : ldsInterleaved;
+                    ldsInterleaved      = blockCompute ? true : ldsInterleaved;
+
                     double s   = 1.0;
                     size_t ins = 1, outs = 1; // unit_stride
                     bool   gIn = false, gOut = false;
@@ -855,6 +827,60 @@ namespace StockhamGenerator
                                     gOut);
                 }
             }
+        }
+
+        /* =====================================================================
+            In this GenerateKernel function
+            Real2Complex Complex2Real features are not available
+            Callback features are not available
+            =================================================================== */
+        void GenerateKernel(std::string& str)
+        {
+            // Base type
+            std::string rType = RegBaseType<PR>(1);
+            // Vector type
+            std::string r2Type = RegBaseType<PR>(2);
+
+            bool inInterleaved; // Input is interleaved format
+            bool outInterleaved; // Output is interleaved format
+            inInterleaved = ((params.fft_inputLayout == rocfft_array_type_complex_interleaved)
+                             || (params.fft_inputLayout == rocfft_array_type_hermitian_interleaved))
+                                ? true
+                                : false;
+            outInterleaved
+                = ((params.fft_outputLayout == rocfft_array_type_complex_interleaved)
+                   || (params.fft_outputLayout == rocfft_array_type_hermitian_interleaved))
+                      ? true
+                      : false;
+
+            // use interleaved LDS when halfLds constraint absent
+            bool ldsInterleaved = inInterleaved || outInterleaved;
+            ldsInterleaved      = halfLds ? false : ldsInterleaved;
+            ldsInterleaved      = blockCompute ? true : ldsInterleaved;
+
+            // Input is real format
+            bool inReal = params.fft_inputLayout == rocfft_array_type_real;
+            // Output is real format
+            bool outReal = params.fft_outputLayout == rocfft_array_type_real;
+
+            // str += "#include \"common.h\"\n";
+            str += "#include \"rocfft_butterfly_template.h\"\n\n";
+
+            std::string sfx = FloatSuffix<PR>();
+
+            // bool cReg = linearRegs ? true : false;
+            // printf("cReg is %d \n", cReg);
+
+            // Generate butterflies for all unique radices
+            std::list<size_t> uradices;
+            for(std::vector<size_t>::const_iterator r = radices.begin(); r != radices.end(); r++)
+                uradices.push_back(*r);
+
+            uradices.sort();
+            uradices.unique();
+            typename std::vector<Pass<PR>>::const_iterator p;
+
+            GeneratePassesKernel(str);
 
             /* =====================================================================
                 generate fwd or back ward length-point FFT device functions :
