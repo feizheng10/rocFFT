@@ -1036,65 +1036,26 @@ namespace StockhamGenerator
         }
 
         /* =====================================================================
-            In this GenerateKernel function
-            Real2Complex Complex2Real features are not available
-            Callback features are not available
+                Generate Main kernels: call passes
+                Generate forward (fwd) cases and backward kernels
+                Generate inplace and outof place kernels
             =================================================================== */
-        void GenerateKernel(std::string& str)
+        void GenerateGlobalKernel(std::string& str)
         {
-            // Base type
-            std::string rType = RegBaseType<PR>(1);
-            // Vector type
-            std::string r2Type = RegBaseType<PR>(2);
-
-            bool inInterleaved; // Input is interleaved format
-            bool outInterleaved; // Output is interleaved format
-            inInterleaved = ((params.fft_inputLayout == rocfft_array_type_complex_interleaved)
-                             || (params.fft_inputLayout == rocfft_array_type_hermitian_interleaved))
-                                ? true
-                                : false;
-            outInterleaved
-                = ((params.fft_outputLayout == rocfft_array_type_complex_interleaved)
-                   || (params.fft_outputLayout == rocfft_array_type_hermitian_interleaved))
-                      ? true
-                      : false;
+            bool inInterleaved = true; // Input is interleaved format
+            bool outInterleaved = true; // Output is interleaved format
 
             // use interleaved LDS when halfLds constraint absent
             bool ldsInterleaved = inInterleaved || outInterleaved;
             ldsInterleaved      = halfLds ? false : ldsInterleaved;
             ldsInterleaved      = blockCompute ? true : ldsInterleaved;
 
-            // Input is real format
-            bool inReal = params.fft_inputLayout == rocfft_array_type_real;
-            // Output is real format
-            bool outReal = params.fft_outputLayout == rocfft_array_type_real;
+            // Base type
+            std::string rType = RegBaseType<PR>(1);
+            // Vector type
+            std::string r2Type = RegBaseType<PR>(2);
 
-            // str += "#include \"common.h\"\n";
-            str += "#include \"rocfft_butterfly_template.h\"\n\n";
-
-            std::string sfx = FloatSuffix<PR>();
-
-            // bool cReg = linearRegs ? true : false;
-            // printf("cReg is %d \n", cReg);
-
-            // Generate butterflies for all unique radices
-            std::list<size_t> uradices;
-            for(std::vector<size_t>::const_iterator r = radices.begin(); r != radices.end(); r++)
-                uradices.push_back(*r);
-
-            uradices.sort();
-            uradices.unique();
             typename std::vector<Pass<PR>>::const_iterator p;
-
-            GeneratePassesKernel(str);
-
-            GenerateEncapsulatedPassesKernel(str);
-
-            /* =====================================================================
-                Generate Main kernels: call passes
-                Generate forward (fwd) cases and backward kernels
-                Generate inplace and outof place kernels
-                =================================================================== */
 
             for(int place = 0; place < 2; place++)
             {
@@ -1781,6 +1742,23 @@ namespace StockhamGenerator
 
                 } // end fwd, backward
             }
+        }
+
+        /* =====================================================================
+            In this GenerateKernel function
+            Real2Complex Complex2Real features are not available
+            Callback features are not available
+            =================================================================== */
+        void GenerateKernel(std::string& str)
+        {
+            // str += "#include \"common.h\"\n";
+            str += "#include \"rocfft_butterfly_template.h\"\n\n";
+
+            GeneratePassesKernel(str);
+
+            GenerateEncapsulatedPassesKernel(str);
+
+            GenerateGlobalKernel(str);
         }
     };
 };
