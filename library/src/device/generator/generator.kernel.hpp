@@ -824,7 +824,7 @@ namespace StockhamGenerator
                     // TODO: double check the special cases sbrc and sbcc
                     if (!(name_suffix == "_sbrc" || name_suffix == "_sbcc"))
                     {
-                        if(passes.size() == 1) //single pass
+                        if(numPasses == 1)
                         {
                             GenerateSinglePassKernel(str, fwd, scale, inReal, outReal, false, false, p);
                         }
@@ -849,156 +849,190 @@ namespace StockhamGenerator
         void GenerateEncapsulatedPassesKernel(std::string& str)
         {
             std::string r2Type = RegBaseType<PR>(2);
-
-            bool inInterleaved = true;
-            bool outInterleaved = true;
-
-            // use interleaved LDS when halfLds constraint absent
-            bool ldsInterleaved = inInterleaved || outInterleaved;
-            ldsInterleaved      = halfLds ? false : ldsInterleaved;
-            ldsInterleaved      = blockCompute ? true : ldsInterleaved;
-
-            for(size_t d = 0; d < 2; d++)
-            {
-                bool fwd;
-                fwd = d ? false : true;
-
-                str += "template <typename T, StrideBin sb> \n";
-                str += "__device__ void \n";
-
-                if(fwd)
-                    str += "fwd_len";
-                else
-                    str += "back_len";
-                str += std::to_string(length) + name_suffix;
-                str += "_device";
-
-                str += "(const T *twiddles, ";
-                if(blockCompute && name_suffix == "_sbcc")
-                    str += "const T *twiddles_large, "; // the blockCompute BCT_C2C
-                // algorithm use one more twiddle
-                // parameter
-                str += "const size_t stride_in, const size_t stride_out, unsigned int "
-                       "rw, unsigned int b, ";
-                str += "unsigned int me, unsigned int ldsOffset, T *lwbIn, T *lwbOut";
-
-                if(blockCompute) // blockCompute' lds type is T
+            for (int in=1; in>=0; in--)
+                for (int out=1; out>=0; out--)
                 {
-                    str += ", T *lds";
-                }
-                else
-                {
-                    if(numPasses > 1)
-                        str += ", real_type_t<T> *lds"; // only multiple pass use lds
-                }
+                    bool inInterleaved = in;
+                    bool outInterleaved = out;
 
-                str += ")\n";
-                str += "{\n";
+                    // use interleaved LDS when halfLds constraint absent
+                    bool ldsInterleaved = inInterleaved || outInterleaved;
+                    ldsInterleaved      = halfLds ? false : ldsInterleaved;
+                    ldsInterleaved      = blockCompute ? true : ldsInterleaved;
 
-                // Setup registers if needed
-                if(linearRegs)
-                {
-                    str += "\t";
-                    str += r2Type;
-                    str += " ";
-                    str += IterRegs("", false);
-                    str += ";\n";
-                }
-
-                if(numPasses == 1)
-                {
-                    str += "\t";
-                    str += PassName(0, fwd, length, name_suffix);
-                    str += "<T, sb>(twiddles, ";
-                    if(blockCompute && name_suffix == "_sbcc")
-                        str += "twiddles_large, "; // the blockCompute BCT_C2C algorithm use
-                    // one more twiddle parameter
-                    str += "stride_in, stride_out, rw, b, me, 0, 0, lwbIn, lwbOut";
-                    str += IterRegs("&");
-                    str += ");\n";
-                }
-                else
-                {
-                    for(auto p = passes.begin(); p != passes.end(); ++p)
+                    for(size_t d = 0; d < 2; d++)
                     {
-                        std::string exTab = "";
+                        bool fwd;
+                        fwd = d ? false : true;
 
-                        str += exTab;
-                        str += "\t";
-                        str += PassName(p->GetPosition(), fwd, length, name_suffix);
-                        str += "<T, sb>(twiddles, ";
-                        // the blockCompute BCT_C2C algorithm use one more twiddle parameter
+                        str += "template <typename T, StrideBin sb> \n";
+                        str += "__device__ void \n";
+
+                        if(fwd)
+                            str += "fwd_len";
+                        else
+                            str += "back_len";
+                        str += std::to_string(length) + name_suffix;
+                        str += "_device";
+
+                        str += "(const T *twiddles, ";
                         if(blockCompute && name_suffix == "_sbcc")
-                            str += "twiddles_large, ";
-                        str += "stride_in, stride_out, rw, b, me, ";
+                            str += "const T *twiddles_large, "; // the blockCompute BCT_C2C
+                        // algorithm use one more twiddle
+                        // parameter
+                        str += "const size_t stride_in, const size_t stride_out, unsigned int "
+                            "rw, unsigned int b, ";
+                        str += "unsigned int me, unsigned int ldsOffset,";
 
-                        std::string ldsArgs;
-                        if(halfLds)
+                        if (inInterleaved)
+                            str += " T *lwbIn,";
+                        else
+                            str += " real_type_t<T> *bufInRe, real_type_t<T> *bufInIm,";
+
+                        if (outInterleaved)
+                            str += " T *lwbOut";
+                        else
+                            str += " real_type_t<T> *bufOutRe, real_type_t<T> *bufOutIm";
+
+                        if(blockCompute) // blockCompute' lds type is T
                         {
-                            ldsArgs += "lds, lds";
+                            str += ", T *lds";
                         }
                         else
                         {
-                            if(ldsInterleaved)
-                            {
-                                ldsArgs += "lds";
-                            }
-                            else
-                            {
-                                ldsArgs += "lds, lds + ";
-                                ldsArgs += std::to_string(length * numTrans);
-                            }
+                            if(numPasses > 1)
+                                str += ", real_type_t<T> *lds"; // only multiple pass use lds
                         }
 
-                        // about offset
-                        if(p == passes.begin()) // beginning pass
+                        str += ")\n";
+                        str += "{\n";
+
+                        // Setup registers if needed
+                        if(linearRegs)
                         {
-                            if(blockCompute) // blockCompute use shared memory (lds), so if
-                            // true, use ldsOffset
-                            {
-                                str += "ldsOffset, ";
-                            }
-                            else
-                            {
-                                str += "0, ";
-                            }
-                            str += "ldsOffset, lwbIn, ";
-                            str += ldsArgs;
-                        }
-                        else if((p + 1) == passes.end()) // ending pass
-                        {
-                            str += "ldsOffset, ";
-                            if(blockCompute) // blockCompute use shared memory (lds), so if
-                            // true, use ldsOffset
-                            {
-                                str += "ldsOffset, ";
-                            }
-                            else
-                            {
-                                str += "0, ";
-                            }
-                            str += ldsArgs;
-                            str += ", lwbOut";
-                        }
-                        else // intermediate pass
-                        {
-                            str += "ldsOffset, ldsOffset, ";
-                            str += ldsArgs;
-                            str += ", ";
-                            str += ldsArgs;
+                            str += "\t";
+                            str += r2Type;
+                            str += " ";
+                            str += IterRegs("", false);
+                            str += ";\n";
                         }
 
-                        str += IterRegs("&");
-                        str += ");\n";
-                        if(!halfLds)
+                        if(numPasses == 1)
                         {
-                            str += exTab;
-                            str += "\t__syncthreads();\n";
+                            str += "\t";
+                            str += PassName(0, fwd, length, name_suffix);
+                            str += "<T, sb>(twiddles, ";
+                            if(blockCompute && name_suffix == "_sbcc")
+                                str += "twiddles_large, "; // the blockCompute BCT_C2C algorithm use
+                            // one more twiddle parameter
+                            str += "stride_in, stride_out, rw, b, me, 0, 0,";
+
+                            if (inInterleaved)
+                                str += " lwbIn,";
+                            else
+                                str += " bufInRe, bufInIm,";
+
+                            if (outInterleaved)
+                                str += " lwbOut";
+                            else
+                                str += " bufOutRe, bufOutIm";
+
+                            str += IterRegs("&");
+                            str += ");\n";
                         }
+                        else
+                        {
+                            for(auto p = passes.begin(); p != passes.end(); ++p)
+                            {
+                                std::string exTab = "";
+
+                                str += exTab;
+                                str += "\t";
+                                str += PassName(p->GetPosition(), fwd, length, name_suffix);
+                                str += "<T, sb>(twiddles, ";
+                                // the blockCompute BCT_C2C algorithm use one more twiddle parameter
+                                if(blockCompute && name_suffix == "_sbcc")
+                                    str += "twiddles_large, ";
+                                str += "stride_in, stride_out, rw, b, me, ";
+
+                                std::string ldsArgs;
+                                if(halfLds)
+                                {
+                                    ldsArgs += "lds, lds";
+                                }
+                                else
+                                {
+                                    if(ldsInterleaved)
+                                    {
+                                        ldsArgs += "lds";
+                                    }
+                                    else
+                                    {
+                                        ldsArgs += "lds, lds + ";
+                                        ldsArgs += std::to_string(length * numTrans);
+                                    }
+                                }
+
+                                // about offset
+                                if(p == passes.begin()) // beginning pass
+                                {
+                                    if(blockCompute) // blockCompute use shared memory (lds), so if
+                                    // true, use ldsOffset
+                                    {
+                                        str += "ldsOffset, ";
+                                    }
+                                    else
+                                    {
+                                        str += "0, ";
+                                    }
+
+                                    str += "ldsOffset, ";
+                                    if (inInterleaved)
+                                        str += " lwbIn, ";
+                                    else
+                                        str += " bufInRe, bufInIm, ";
+
+                                    str += ldsArgs;
+                                }
+                                else if((p + 1) == passes.end()) // ending pass
+                                {
+                                    str += "ldsOffset, ";
+                                    if(blockCompute) // blockCompute use shared memory (lds), so if
+                                    // true, use ldsOffset
+                                    {
+                                        str += "ldsOffset, ";
+                                    }
+                                    else
+                                    {
+                                        str += "0, ";
+                                    }
+                                    str += ldsArgs;
+
+                                    if (outInterleaved)
+                                        str += ",  lwbOut";
+                                    else
+                                        str += ", bufOutRe, bufOutIm";
+                                }
+                                else // intermediate pass
+                                {
+                                    str += "ldsOffset, ldsOffset, ";
+                                    str += ldsArgs;
+                                    str += ", ";
+                                    str += ldsArgs;
+                                }
+
+                                str += IterRegs("&");
+                                str += ");\n";
+                                if(!halfLds)
+                                {
+                                    str += exTab;
+                                    str += "\t__syncthreads();\n";
+                                }
+                            }
+                        } // if (numPasses == 1)
+                        str += "}\n\n";
                     }
-                } // if (numPasses == 1)
-                str += "}\n\n";
-            }
+                }
         }
 
         /* =====================================================================
