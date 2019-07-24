@@ -720,6 +720,86 @@ namespace StockhamGenerator
             }
         };
 
+        void GenerateSinglePassKernel(std::string& str, bool fwd, double scale,
+                bool inReal, bool outReal,
+                bool inInterleaved, bool outInterleaved,
+                typename std::vector<Pass<PR>>::const_iterator &p)
+        {
+            //TODO: this function is not encapsulated good enough...
+
+            bool ldsInterleaved = inInterleaved || outInterleaved;
+            ldsInterleaved      = halfLds ? false : ldsInterleaved;
+            ldsInterleaved      = blockCompute ? true : ldsInterleaved;
+
+            double s   = 1.0;
+            size_t ins = 1, outs = 1; // unit_stride
+            bool   gIn = false, gOut = false;
+            bool   inIlvd = false, outIlvd = false;
+            bool   inRl = false, outRl = false;
+            bool   tw3Step = false;
+
+            if(p == passes.cbegin() && params.fft_twiddleFront)
+            {
+                tw3Step = params.fft_3StepTwiddle;
+            }
+            if((p + 1) == passes.cend())
+            {
+                s = scale;
+                if(!params.fft_twiddleFront)
+                    tw3Step = params.fft_3StepTwiddle;
+            }
+
+            if(blockCompute && !r2c2r)
+            {
+                inIlvd  = ldsInterleaved;
+                outIlvd = ldsInterleaved;
+            }
+            else
+            {
+                if(p == passes.cbegin())
+                {
+                    inIlvd = inInterleaved;
+                    inRl   = inReal;
+                    gIn    = true;
+                    ins    = 0x7fff;
+                } // 0x7fff = 32767 in decimal, indicating non-unit stride
+                // ins = -1 is for non-unit stride, the 1st pass may read strided
+                // memory, while the middle pass read/write LDS which guarantees
+                // unit-stride
+                if((p + 1) == passes.cend())
+                {
+                    outIlvd = outInterleaved;
+                    outRl   = outReal;
+                    gOut    = true;
+                    outs    = 0x7fff;
+                } // 0x7fff is non-unit stride
+                // ins = -1 is for non-unit stride, the last pass may write strided
+                // memory
+                if(p != passes.cbegin())
+                {
+                    inIlvd = ldsInterleaved;
+                }
+                if((p + 1) != passes.cend())
+                {
+                    outIlvd = ldsInterleaved;
+                }
+            }
+            p->GeneratePass(fwd,
+                            name_suffix,
+                            str,
+                            tw3Step,
+                            params.fft_twiddleFront,
+                            inIlvd,
+                            outIlvd,
+                            inRl,
+                            outRl,
+                            ins,
+                            outs,
+                            s,
+                            gIn,
+                            gOut);
+        }
+
         /* =====================================================================
                 write pass functions
                 passes call butterfly device functions
@@ -728,20 +808,6 @@ namespace StockhamGenerator
             =================================================================== */
         void GeneratePassesKernel(std::string& str)
         {
-            typename std::vector<Pass<PR>>::const_iterator p;
-
-            bool inInterleaved; // Input is interleaved format
-            bool outInterleaved; // Output is interleaved format
-            inInterleaved = ((params.fft_inputLayout == rocfft_array_type_complex_interleaved)
-                             || (params.fft_inputLayout == rocfft_array_type_hermitian_interleaved))
-                                ? true
-                                : false;
-            outInterleaved
-                = ((params.fft_outputLayout == rocfft_array_type_complex_interleaved)
-                   || (params.fft_outputLayout == rocfft_array_type_hermitian_interleaved))
-                      ? true
-                      : false;
-
             // Input is real format
             bool inReal = params.fft_inputLayout == rocfft_array_type_real;
             // Output is real format
@@ -751,82 +817,24 @@ namespace StockhamGenerator
             {
                 bool fwd = d ? false : true;
                 double scale = fwd ? params.fft_fwdScale : params.fft_backScale;
-
-                for(p = passes.begin(); p != passes.end(); p++)
+                for(auto p = passes.cbegin(); p != passes.cend(); ++p)
                 {
-                    bool ldsInterleaved = inInterleaved || outInterleaved;
-                    ldsInterleaved      = halfLds ? false : ldsInterleaved;
-                    ldsInterleaved      = blockCompute ? true : ldsInterleaved;
+                    GenerateSinglePassKernel(str, fwd, scale, inReal, outReal, true, true, p);
 
-                    double s   = 1.0;
-                    size_t ins = 1, outs = 1; // unit_stride
-                    bool   gIn = false, gOut = false;
-                    bool   inIlvd = false, outIlvd = false;
-                    bool   inRl = false, outRl = false;
-                    bool   tw3Step = false;
-
-                    if(p == passes.begin() && params.fft_twiddleFront)
+                    // TODO: double check the special cases sbrc and sbcc
+                    if (!(name_suffix == "_sbrc" || name_suffix == "_sbcc"))
                     {
-                        tw3Step = params.fft_3StepTwiddle;
-                    }
-                    if((p + 1) == passes.end())
-                    {
-                        s = scale;
-                        if(!params.fft_twiddleFront)
-                            tw3Step = params.fft_3StepTwiddle;
-                    }
-
-                    if(blockCompute && !r2c2r)
-                    {
-                        inIlvd  = ldsInterleaved;
-                        outIlvd = ldsInterleaved;
-                    }
-                    else
-                    {
-                        if(p == passes.begin())
+                        if(p == passes.cbegin())
                         {
-                            inIlvd = inInterleaved;
-                            inRl   = inReal;
-                            gIn    = true;
-                            ins    = 0x7fff;
-                        } // 0x7fff = 32767 in decimal, indicating non-unit stride
-                        // ins = -1 is for non-unit stride, the 1st pass may read strided
-                        // memory, while the middle pass read/write LDS which guarantees
-                        // unit-stride
-                        if((p + 1) == passes.end())
-                        {
-                            outIlvd = outInterleaved;
-                            outRl   = outReal;
-                            gOut    = true;
-                            outs    = 0x7fff;
-                        } // 0x7fff is non-unit stride
-                        // ins = -1 is for non-unit stride, the last pass may write strided
-                        // memory
-                        if(p != passes.begin())
-                        {
-                            inIlvd = ldsInterleaved;
+                            GenerateSinglePassKernel(str, fwd, scale, inReal, outReal, false, true, p);
                         }
-                        if((p + 1) != passes.end())
+                        else if((p + 1) == passes.cend())
                         {
-                            outIlvd = ldsInterleaved;
+                            GenerateSinglePassKernel(str, fwd, scale, inReal, outReal, true, false, p);
                         }
                     }
-                    p->GeneratePass(fwd,
-                                    name_suffix,
-                                    str,
-                                    tw3Step,
-                                    params.fft_twiddleFront,
-                                    inIlvd,
-                                    outIlvd,
-                                    inRl,
-                                    outRl,
-                                    ins,
-                                    outs,
-                                    s,
-                                    gIn,
-                                    gOut);
                 }
-            }
+            }         
         }
 
         /* =====================================================================
