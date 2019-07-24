@@ -824,7 +824,11 @@ namespace StockhamGenerator
                     // TODO: double check the special cases sbrc and sbcc
                     if (!(name_suffix == "_sbrc" || name_suffix == "_sbcc"))
                     {
-                        if(p == passes.cbegin())
+                        if(passes.size() == 1) //single pass
+                        {
+                            GenerateSinglePassKernel(str, fwd, scale, inReal, outReal, false, false, p);
+                        }
+                        else if(p == passes.cbegin())
                         {
                             GenerateSinglePassKernel(str, fwd, scale, inReal, outReal, false, true, p);
                         }
@@ -838,63 +842,21 @@ namespace StockhamGenerator
         }
 
         /* =====================================================================
-            In this GenerateKernel function
-            Real2Complex Complex2Real features are not available
-            Callback features are not available
+                generate fwd or back ward length-point FFT device functions :
+                encapsulate passes
+                called by kernels which set up shared memory (LDS), offset, etc
             =================================================================== */
-        void GenerateKernel(std::string& str)
+        void GenerateEncapsulatedPassesKernel(std::string& str)
         {
-            // Base type
-            std::string rType = RegBaseType<PR>(1);
-            // Vector type
             std::string r2Type = RegBaseType<PR>(2);
 
-            bool inInterleaved; // Input is interleaved format
-            bool outInterleaved; // Output is interleaved format
-            inInterleaved = ((params.fft_inputLayout == rocfft_array_type_complex_interleaved)
-                             || (params.fft_inputLayout == rocfft_array_type_hermitian_interleaved))
-                                ? true
-                                : false;
-            outInterleaved
-                = ((params.fft_outputLayout == rocfft_array_type_complex_interleaved)
-                   || (params.fft_outputLayout == rocfft_array_type_hermitian_interleaved))
-                      ? true
-                      : false;
+            bool inInterleaved = true;
+            bool outInterleaved = true;
 
             // use interleaved LDS when halfLds constraint absent
             bool ldsInterleaved = inInterleaved || outInterleaved;
             ldsInterleaved      = halfLds ? false : ldsInterleaved;
             ldsInterleaved      = blockCompute ? true : ldsInterleaved;
-
-            // Input is real format
-            bool inReal = params.fft_inputLayout == rocfft_array_type_real;
-            // Output is real format
-            bool outReal = params.fft_outputLayout == rocfft_array_type_real;
-
-            // str += "#include \"common.h\"\n";
-            str += "#include \"rocfft_butterfly_template.h\"\n\n";
-
-            std::string sfx = FloatSuffix<PR>();
-
-            // bool cReg = linearRegs ? true : false;
-            // printf("cReg is %d \n", cReg);
-
-            // Generate butterflies for all unique radices
-            std::list<size_t> uradices;
-            for(std::vector<size_t>::const_iterator r = radices.begin(); r != radices.end(); r++)
-                uradices.push_back(*r);
-
-            uradices.sort();
-            uradices.unique();
-            typename std::vector<Pass<PR>>::const_iterator p;
-
-            GeneratePassesKernel(str);
-
-            /* =====================================================================
-                generate fwd or back ward length-point FFT device functions :
-                encapsulate passes
-                called by kernels which set up shared memory (LDS), offset, etc
-                =================================================================== */
 
             for(size_t d = 0; d < 2; d++)
             {
@@ -957,9 +919,7 @@ namespace StockhamGenerator
                 }
                 else
                 {
-                    for(typename std::vector<Pass<PR>>::const_iterator p = passes.begin();
-                        p != passes.end();
-                        p++)
+                    for(auto p = passes.begin(); p != passes.end(); ++p)
                     {
                         std::string exTab = "";
 
@@ -1039,6 +999,62 @@ namespace StockhamGenerator
                 } // if (numPasses == 1)
                 str += "}\n\n";
             }
+        }
+
+        /* =====================================================================
+            In this GenerateKernel function
+            Real2Complex Complex2Real features are not available
+            Callback features are not available
+            =================================================================== */
+        void GenerateKernel(std::string& str)
+        {
+            // Base type
+            std::string rType = RegBaseType<PR>(1);
+            // Vector type
+            std::string r2Type = RegBaseType<PR>(2);
+
+            bool inInterleaved; // Input is interleaved format
+            bool outInterleaved; // Output is interleaved format
+            inInterleaved = ((params.fft_inputLayout == rocfft_array_type_complex_interleaved)
+                             || (params.fft_inputLayout == rocfft_array_type_hermitian_interleaved))
+                                ? true
+                                : false;
+            outInterleaved
+                = ((params.fft_outputLayout == rocfft_array_type_complex_interleaved)
+                   || (params.fft_outputLayout == rocfft_array_type_hermitian_interleaved))
+                      ? true
+                      : false;
+
+            // use interleaved LDS when halfLds constraint absent
+            bool ldsInterleaved = inInterleaved || outInterleaved;
+            ldsInterleaved      = halfLds ? false : ldsInterleaved;
+            ldsInterleaved      = blockCompute ? true : ldsInterleaved;
+
+            // Input is real format
+            bool inReal = params.fft_inputLayout == rocfft_array_type_real;
+            // Output is real format
+            bool outReal = params.fft_outputLayout == rocfft_array_type_real;
+
+            // str += "#include \"common.h\"\n";
+            str += "#include \"rocfft_butterfly_template.h\"\n\n";
+
+            std::string sfx = FloatSuffix<PR>();
+
+            // bool cReg = linearRegs ? true : false;
+            // printf("cReg is %d \n", cReg);
+
+            // Generate butterflies for all unique radices
+            std::list<size_t> uradices;
+            for(std::vector<size_t>::const_iterator r = radices.begin(); r != radices.end(); r++)
+                uradices.push_back(*r);
+
+            uradices.sort();
+            uradices.unique();
+            typename std::vector<Pass<PR>>::const_iterator p;
+
+            GeneratePassesKernel(str);
+
+            GenerateEncapsulatedPassesKernel(str);
 
             /* =====================================================================
                 Generate Main kernels: call passes
