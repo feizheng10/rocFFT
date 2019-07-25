@@ -472,254 +472,6 @@ namespace StockhamGenerator
             return str;
         }
 
-    public:
-        Kernel(const FFTKernelGenKeyParams& paramsVal)
-            : params(paramsVal)
-            , r2c2r(false)
-
-        {
-
-            /* in principle, the fft_N should be passed as a run-time parameter to
-               kernel (with the name lengths)
-               However, we have to take out the fft_N[0] (length) to calculate the pass,
-               blockCompute related parameter at kernel generation stage
-            */
-            length           = params.fft_N[0];
-            workGroupSize    = params.fft_workGroupSize;
-            numTrans         = params.fft_numTrans;
-            blockComputeType = params.blockComputeType;
-            name_suffix      = params.name_suffix;
-
-            r2c = false;
-            c2r = false;
-            // Check if it is R2C or C2R transform
-            if(params.fft_inputLayout == rocfft_array_type_real)
-                r2c = true;
-            if(params.fft_outputLayout == rocfft_array_type_real)
-                c2r = true;
-            r2c2r = (r2c || c2r);
-
-            if(r2c)
-            {
-                rcFull = ((params.fft_outputLayout == rocfft_array_type_complex_interleaved)
-                          || (params.fft_outputLayout == rocfft_array_type_complex_planar))
-                             ? true
-                             : false;
-            }
-            if(c2r)
-            {
-                rcFull = ((params.fft_inputLayout == rocfft_array_type_complex_interleaved)
-                          || (params.fft_inputLayout == rocfft_array_type_complex_planar))
-                             ? true
-                             : false;
-            }
-
-            rcSimple = params.fft_RCsimple;
-
-            halfLds    = true;
-            linearRegs = true;
-
-            realSpecial = params.fft_realSpecial;
-
-            blockCompute = params.blockCompute;
-
-            // Make sure we can utilize all Lds if we are going to
-            // use blocked columns to compute FFTs
-            if(blockCompute)
-            {
-                assert(length <= 256); // 256 parameter comes from prototype experiments
-                // largest length at which block column possible given 32KB LDS limit
-                // if LDS limit is different this number need to be changed appropriately
-                halfLds    = false;
-                linearRegs = true;
-            }
-
-            assert(((length * numTrans) % workGroupSize) == 0);
-            cnPerWI               = (numTrans * length) / workGroupSize;
-            workGroupSizePerTrans = workGroupSize / numTrans;
-
-            // !!!! IMPORTANT !!!! Keep these assertions unchanged, algorithm depend on
-            // these to be true
-            assert((cnPerWI * workGroupSize) == (numTrans * length));
-            assert(cnPerWI <= length); // Don't do more than 1 fft per work-item
-
-            // Breakdown into passes
-
-            size_t LS = 1;
-            size_t L;
-            size_t R   = length;
-            size_t pid = 0;
-
-            // See if we can get radices from the lookup table, only part of pow2 is in
-            // the table
-            KernelCoreSpecs     kcs;
-            std::vector<size_t> radices = kcs.GetRadices(length);
-            size_t              nPasses = radices.size();
-
-            if((params.fft_MaxWorkGroupSize >= 256) && (nPasses != 0))
-            {
-                for(size_t i = 0; i < nPasses; i++)
-                {
-                    size_t rad = radices[i];
-                    // printf("length: %d, rad = %d, linearRegs=%d ", (int)length, (int)rad,
-                    // linearRegs);
-                    L = LS * rad;
-                    R /= rad;
-
-                    passes.push_back(Pass<PR>(i,
-                                              length,
-                                              rad,
-                                              cnPerWI,
-                                              L,
-                                              LS,
-                                              R,
-                                              linearRegs,
-                                              halfLds,
-                                              r2c,
-                                              c2r,
-                                              rcFull,
-                                              rcSimple,
-                                              realSpecial));
-
-                    LS *= rad;
-                }
-                assert(R == 1); // this has to be true for correct radix composition of the length
-                numPasses = nPasses;
-            }
-            else
-            {
-                // printf("generating radix sequences\n");
-
-                // Possible radices
-                size_t cRad[] = {13, 11, 10, 8, 7, 6, 5, 4, 3, 2, 1}; // Must be in descending order
-                size_t cRadSize = (sizeof(cRad) / sizeof(cRad[0]));
-
-                // Generate the radix and pass objects
-                while(true)
-                {
-                    size_t rad;
-
-                    assert(cRadSize >= 1);
-
-                    // Picks the radices in descending order (biggest radix first)
-                    for(size_t r = 0; r < cRadSize; r++)
-                    {
-                        rad = cRad[r];
-
-                        if((rad > cnPerWI) || (cnPerWI % rad))
-                            continue;
-
-                        if(!(R % rad))
-                            break;
-                    }
-
-                    assert((cnPerWI % rad) == 0);
-
-                    L = LS * rad;
-                    R /= rad;
-
-                    radices.push_back(rad);
-                    passes.push_back(Pass<PR>(pid,
-                                              length,
-                                              rad,
-                                              cnPerWI,
-                                              L,
-                                              LS,
-                                              R,
-                                              linearRegs,
-                                              halfLds,
-                                              r2c,
-                                              c2r,
-                                              rcFull,
-                                              rcSimple,
-                                              realSpecial));
-
-                    pid++;
-                    LS *= rad;
-
-                    assert(R >= 1);
-                    if(R == 1)
-                        break;
-                } // end while
-                numPasses = pid;
-            }
-
-            assert(numPasses == passes.size());
-            assert(numPasses == radices.size());
-
-#ifdef PARMETERS_TO_BE_READ
-
-            ParamRead pr;
-            ReadParameterFile(pr);
-
-            radices.clear();
-            passes.clear();
-
-            radices   = pr.radices;
-            numPasses = radices.size();
-
-            LS = 1;
-            R  = length;
-            for(size_t i = 0; i < numPasses; i++)
-            {
-                size_t rad = radices[i];
-                L          = LS * rad;
-                R /= rad;
-
-                passes.push_back(Pass<PR>(i, length, rad, cnPerWI, L, LS, R, linearRegs));
-
-                LS *= rad;
-            }
-            assert(R == 1);
-#endif
-
-            // Grouping read/writes ok?
-            bool grp = IsGroupedReadWritePossible();
-            // printf("len=%d, grp = %d\n", length, grp);
-            for(size_t i = 0; i < numPasses; i++)
-                passes[i].SetGrouping(grp);
-
-            // Store the next pass-object pointers
-            if(numPasses > 1)
-                for(size_t i = 0; i < (numPasses - 1); i++)
-                    passes[i].SetNextPass(&passes[i + 1]);
-
-            if(blockCompute)
-            {
-                BlockSizes::GetValue(length, blockWidth, blockWGS, blockLDS);
-            }
-            else
-            {
-                blockWidth = blockWGS = blockLDS = 0;
-            }
-        } // end of if ((params.fft_MaxWorkGroupSize >= 256) && (nPasses != 0))
-
-        class BlockSizes
-        {
-        public:
-            static void GetValue(size_t N, size_t& bwd, size_t& wgs, size_t& lds)
-            {
-                // wgs preferred work group size
-                // bwd block width to be used
-                // lds LDS size to be used for the block
-
-                GetBlockComputeTable(N, bwd, wgs, lds);
-
-                /*
-                // bwd > t_nt is always ture, TODO: remove
-                KernelCoreSpecs kcs;
-                size_t t_wgs, t_nt;
-                kcs.GetWGSAndNT(N, t_wgs, t_nt);
-                wgs =  (bwd > t_nt) ? wgs : t_wgs;
-                */
-
-                // printf("N=%d, bwd=%d, wgs=%d, lds=%d\n", N, bwd, wgs, lds);
-                // block width cannot be less than numTrans, math in other parts of code
-                // depend on this assumption
-                // assert(bwd >= t_nt);
-            }
-        };
-
         void GenerateSinglePassKernel(std::string& str, bool fwd, double scale,
                 bool inReal, bool outReal,
                 bool inInterleaved, bool outInterleaved,
@@ -808,6 +560,7 @@ namespace StockhamGenerator
             =================================================================== */
         void GeneratePassesKernel(std::string& str)
         {
+            str += "\n////////////////////////////////////////Passes kernels\n";
             // Input is real format
             bool inReal = params.fft_inputLayout == rocfft_array_type_real;
             // Output is real format
@@ -848,6 +601,7 @@ namespace StockhamGenerator
             =================================================================== */
         void GenerateEncapsulatedPassesKernel(std::string& str)
         {
+            str += "\n////////////////////////////////////////Encapsulated passes kernels\n";
             std::string r2Type = RegBaseType<PR>(2);
             for (int in=1; in>=0; in--)
                 for (int out=1; out>=0; out--)
@@ -1579,9 +1333,9 @@ namespace StockhamGenerator
                     }
                 }
 
-                str += "\t\t// Perform FFT input: lwb(In) ; output: lwb(Out); working "
+                str += "\t// Perform FFT input: lwb(In) ; output: lwb(Out); working "
                         "space: lds \n";
-                str += "\t\t// rw, b, me% control read/write; then ldsOffset, lwb, lds\n";
+                str += "\t// rw, b, me% control read/write; then ldsOffset, lwb, lds\n";
 
                 std::string ldsOff;
 
@@ -1735,6 +1489,8 @@ namespace StockhamGenerator
             =================================================================== */
         void GenerateGlobalKernel(std::string& str)
         {
+            str += "\n////////////////////////////////////////Global kernels\n";
+
             // inplace, support only: interleaved to interleaved, planar to planar
             GenerateSingleGlobalKernel(str, rocfft_placement_inplace, true, true);
             GenerateSingleGlobalKernel(str, rocfft_placement_inplace, false, false);
@@ -1746,6 +1502,254 @@ namespace StockhamGenerator
             GenerateSingleGlobalKernel(str, rocfft_placement_notinplace, false, false);
         }
 
+    public:
+        Kernel(const FFTKernelGenKeyParams& paramsVal)
+            : params(paramsVal)
+            , r2c2r(false)
+
+        {
+
+            /* in principle, the fft_N should be passed as a run-time parameter to
+               kernel (with the name lengths)
+               However, we have to take out the fft_N[0] (length) to calculate the pass,
+               blockCompute related parameter at kernel generation stage
+            */
+            length           = params.fft_N[0];
+            workGroupSize    = params.fft_workGroupSize;
+            numTrans         = params.fft_numTrans;
+            blockComputeType = params.blockComputeType;
+            name_suffix      = params.name_suffix;
+
+            r2c = false;
+            c2r = false;
+            // Check if it is R2C or C2R transform
+            if(params.fft_inputLayout == rocfft_array_type_real)
+                r2c = true;
+            if(params.fft_outputLayout == rocfft_array_type_real)
+                c2r = true;
+            r2c2r = (r2c || c2r);
+
+            if(r2c)
+            {
+                rcFull = ((params.fft_outputLayout == rocfft_array_type_complex_interleaved)
+                          || (params.fft_outputLayout == rocfft_array_type_complex_planar))
+                             ? true
+                             : false;
+            }
+            if(c2r)
+            {
+                rcFull = ((params.fft_inputLayout == rocfft_array_type_complex_interleaved)
+                          || (params.fft_inputLayout == rocfft_array_type_complex_planar))
+                             ? true
+                             : false;
+            }
+
+            rcSimple = params.fft_RCsimple;
+
+            halfLds    = true;
+            linearRegs = true;
+
+            realSpecial = params.fft_realSpecial;
+
+            blockCompute = params.blockCompute;
+
+            // Make sure we can utilize all Lds if we are going to
+            // use blocked columns to compute FFTs
+            if(blockCompute)
+            {
+                assert(length <= 256); // 256 parameter comes from prototype experiments
+                // largest length at which block column possible given 32KB LDS limit
+                // if LDS limit is different this number need to be changed appropriately
+                halfLds    = false;
+                linearRegs = true;
+            }
+
+            assert(((length * numTrans) % workGroupSize) == 0);
+            cnPerWI               = (numTrans * length) / workGroupSize;
+            workGroupSizePerTrans = workGroupSize / numTrans;
+
+            // !!!! IMPORTANT !!!! Keep these assertions unchanged, algorithm depend on
+            // these to be true
+            assert((cnPerWI * workGroupSize) == (numTrans * length));
+            assert(cnPerWI <= length); // Don't do more than 1 fft per work-item
+
+            // Breakdown into passes
+
+            size_t LS = 1;
+            size_t L;
+            size_t R   = length;
+            size_t pid = 0;
+
+            // See if we can get radices from the lookup table, only part of pow2 is in
+            // the table
+            KernelCoreSpecs     kcs;
+            std::vector<size_t> radices = kcs.GetRadices(length);
+            size_t              nPasses = radices.size();
+
+            if((params.fft_MaxWorkGroupSize >= 256) && (nPasses != 0))
+            {
+                for(size_t i = 0; i < nPasses; i++)
+                {
+                    size_t rad = radices[i];
+                    // printf("length: %d, rad = %d, linearRegs=%d ", (int)length, (int)rad,
+                    // linearRegs);
+                    L = LS * rad;
+                    R /= rad;
+
+                    passes.push_back(Pass<PR>(i,
+                                              length,
+                                              rad,
+                                              cnPerWI,
+                                              L,
+                                              LS,
+                                              R,
+                                              linearRegs,
+                                              halfLds,
+                                              r2c,
+                                              c2r,
+                                              rcFull,
+                                              rcSimple,
+                                              realSpecial));
+
+                    LS *= rad;
+                }
+                assert(R == 1); // this has to be true for correct radix composition of the length
+                numPasses = nPasses;
+            }
+            else
+            {
+                // printf("generating radix sequences\n");
+
+                // Possible radices
+                size_t cRad[] = {13, 11, 10, 8, 7, 6, 5, 4, 3, 2, 1}; // Must be in descending order
+                size_t cRadSize = (sizeof(cRad) / sizeof(cRad[0]));
+
+                // Generate the radix and pass objects
+                while(true)
+                {
+                    size_t rad;
+
+                    assert(cRadSize >= 1);
+
+                    // Picks the radices in descending order (biggest radix first)
+                    for(size_t r = 0; r < cRadSize; r++)
+                    {
+                        rad = cRad[r];
+
+                        if((rad > cnPerWI) || (cnPerWI % rad))
+                            continue;
+
+                        if(!(R % rad))
+                            break;
+                    }
+
+                    assert((cnPerWI % rad) == 0);
+
+                    L = LS * rad;
+                    R /= rad;
+
+                    radices.push_back(rad);
+                    passes.push_back(Pass<PR>(pid,
+                                              length,
+                                              rad,
+                                              cnPerWI,
+                                              L,
+                                              LS,
+                                              R,
+                                              linearRegs,
+                                              halfLds,
+                                              r2c,
+                                              c2r,
+                                              rcFull,
+                                              rcSimple,
+                                              realSpecial));
+
+                    pid++;
+                    LS *= rad;
+
+                    assert(R >= 1);
+                    if(R == 1)
+                        break;
+                } // end while
+                numPasses = pid;
+            }
+
+            assert(numPasses == passes.size());
+            assert(numPasses == radices.size());
+
+#ifdef PARMETERS_TO_BE_READ
+
+            ParamRead pr;
+            ReadParameterFile(pr);
+
+            radices.clear();
+            passes.clear();
+
+            radices   = pr.radices;
+            numPasses = radices.size();
+
+            LS = 1;
+            R  = length;
+            for(size_t i = 0; i < numPasses; i++)
+            {
+                size_t rad = radices[i];
+                L          = LS * rad;
+                R /= rad;
+
+                passes.push_back(Pass<PR>(i, length, rad, cnPerWI, L, LS, R, linearRegs));
+
+                LS *= rad;
+            }
+            assert(R == 1);
+#endif
+
+            // Grouping read/writes ok?
+            bool grp = IsGroupedReadWritePossible();
+            // printf("len=%d, grp = %d\n", length, grp);
+            for(size_t i = 0; i < numPasses; i++)
+                passes[i].SetGrouping(grp);
+
+            // Store the next pass-object pointers
+            if(numPasses > 1)
+                for(size_t i = 0; i < (numPasses - 1); i++)
+                    passes[i].SetNextPass(&passes[i + 1]);
+
+            if(blockCompute)
+            {
+                BlockSizes::GetValue(length, blockWidth, blockWGS, blockLDS);
+            }
+            else
+            {
+                blockWidth = blockWGS = blockLDS = 0;
+            }
+        } // end of if ((params.fft_MaxWorkGroupSize >= 256) && (nPasses != 0))
+
+        class BlockSizes
+        {
+        public:
+            static void GetValue(size_t N, size_t& bwd, size_t& wgs, size_t& lds)
+            {
+                // wgs preferred work group size
+                // bwd block width to be used
+                // lds LDS size to be used for the block
+
+                GetBlockComputeTable(N, bwd, wgs, lds);
+
+                /*
+                // bwd > t_nt is always ture, TODO: remove
+                KernelCoreSpecs kcs;
+                size_t t_wgs, t_nt;
+                kcs.GetWGSAndNT(N, t_wgs, t_nt);
+                wgs =  (bwd > t_nt) ? wgs : t_wgs;
+                */
+
+                // printf("N=%d, bwd=%d, wgs=%d, lds=%d\n", N, bwd, wgs, lds);
+                // block width cannot be less than numTrans, math in other parts of code
+                // depend on this assumption
+                // assert(bwd >= t_nt);
+            }
+        };
+
         /* =====================================================================
             This is the main entrance to generate all device code.
             Notes:
@@ -1753,7 +1757,7 @@ namespace StockhamGenerator
                 Real2Complex Complex2Real features are not available
                 Callback features are not available
             =================================================================== */
-        void GenerateKernel(std::string& str),
+        void GenerateKernel(std::string& str)
         {
             // str += "#include \"common.h\"\n";
             str += "#include \"rocfft_butterfly_template.h\"\n\n";
