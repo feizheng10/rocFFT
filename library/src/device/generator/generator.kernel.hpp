@@ -9,9 +9,9 @@
 #include "generator.param.h"
 #include "generator.pass.hpp"
 #include "generator.stockham.h"
+#include <iterator>
 #include <list>
 #include <stdio.h>
-#include <iterator>
 
 // FFT Stockham Autosort Method
 //
@@ -472,10 +472,14 @@ namespace StockhamGenerator
             return str;
         }
 
-        void GenerateSinglePassKernel(std::string& str, bool fwd, double scale,
-                bool inReal, bool outReal,
-                bool inInterleaved, bool outInterleaved,
-                typename std::vector<Pass<PR>>::const_iterator &p)
+        void GenerateSinglePassKernel(std::string& str,
+                                      bool         fwd,
+                                      double       scale,
+                                      bool         inReal,
+                                      bool         outReal,
+                                      bool         inInterleaved,
+                                      bool         outInterleaved,
+                                      typename std::vector<Pass<PR>>::const_iterator& p)
         {
             //TODO: this function is not encapsulated good enough...
 
@@ -568,30 +572,33 @@ namespace StockhamGenerator
 
             for(size_t d = 0; d < 2; d++)
             {
-                bool fwd = d ? false : true;
+                bool   fwd   = d ? false : true;
                 double scale = fwd ? params.fft_fwdScale : params.fft_backScale;
                 for(auto p = passes.cbegin(); p != passes.cend(); ++p)
                 {
                     GenerateSinglePassKernel(str, fwd, scale, inReal, outReal, true, true, p);
 
                     // TODO: double check the special cases sbrc and sbcc
-                    if (!(name_suffix == "_sbrc" || name_suffix == "_sbcc"))
+                    if(!(name_suffix == "_sbrc" || name_suffix == "_sbcc"))
                     {
                         if(numPasses == 1)
                         {
-                            GenerateSinglePassKernel(str, fwd, scale, inReal, outReal, false, false, p);
+                            GenerateSinglePassKernel(
+                                str, fwd, scale, inReal, outReal, false, false, p);
                         }
                         else if(p == passes.cbegin())
                         {
-                            GenerateSinglePassKernel(str, fwd, scale, inReal, outReal, false, true, p);
+                            GenerateSinglePassKernel(
+                                str, fwd, scale, inReal, outReal, false, true, p);
                         }
                         else if((p + 1) == passes.cend())
                         {
-                            GenerateSinglePassKernel(str, fwd, scale, inReal, outReal, true, false, p);
+                            GenerateSinglePassKernel(
+                                str, fwd, scale, inReal, outReal, true, false, p);
                         }
                     }
                 }
-            }         
+            }
         }
 
         /* =====================================================================
@@ -602,11 +609,12 @@ namespace StockhamGenerator
         void GenerateEncapsulatedPassesKernel(std::string& str)
         {
             str += "\n////////////////////////////////////////Encapsulated passes kernels\n";
+            std::string rType  = RegBaseType<PR>(1);
             std::string r2Type = RegBaseType<PR>(2);
-            for (int in=1; in>=0; in--)
-                for (int out=1; out>=0; out--)
+            for(int in = 1; in >= 0; in--)
+                for(int out = 1; out >= 0; out--)
                 {
-                    bool inInterleaved = in;
+                    bool inInterleaved  = in;
                     bool outInterleaved = out;
 
                     // use interleaved LDS when halfLds constraint absent
@@ -635,27 +643,27 @@ namespace StockhamGenerator
                         // algorithm use one more twiddle
                         // parameter
                         str += "const size_t stride_in, const size_t stride_out, unsigned int "
-                            "rw, unsigned int b, ";
-                        str += "unsigned int me, unsigned int ldsOffset,";
+                               "rw, unsigned int b, ";
+                        str += "unsigned int me, unsigned int ldsOffset, ";
 
-                        if (inInterleaved)
-                            str += " T *lwbIn,";
+                        if(inInterleaved)
+                            str += r2Type + " *lwbIn, ";
                         else
-                            str += " real_type_t<T> *bufInRe, real_type_t<T> *bufInIm,";
+                            str += rType + " *bufInRe, " + rType + " *bufInIm, ";
 
-                        if (outInterleaved)
-                            str += " T *lwbOut";
+                        if(outInterleaved)
+                            str += r2Type + " *lwbOut";
                         else
-                            str += " real_type_t<T> *bufOutRe, real_type_t<T> *bufOutIm";
+                            str += rType + " *bufOutRe, " + rType + " *bufOutIm";
 
                         if(blockCompute) // blockCompute' lds type is T
                         {
-                            str += ", T *lds";
+                            str += ", " + r2Type + " *lds";
                         }
                         else
                         {
                             if(numPasses > 1)
-                                str += ", real_type_t<T> *lds"; // only multiple pass use lds
+                                str += ", " + rType + " *lds"; // only multiple pass use lds
                         }
 
                         str += ")\n";
@@ -681,12 +689,12 @@ namespace StockhamGenerator
                             // one more twiddle parameter
                             str += "stride_in, stride_out, rw, b, me, 0, 0,";
 
-                            if (inInterleaved)
+                            if(inInterleaved)
                                 str += " lwbIn,";
                             else
                                 str += " bufInRe, bufInIm,";
 
-                            if (outInterleaved)
+                            if(outInterleaved)
                                 str += " lwbOut";
                             else
                                 str += " bufOutRe, bufOutIm";
@@ -741,7 +749,7 @@ namespace StockhamGenerator
                                     }
 
                                     str += "ldsOffset, ";
-                                    if (inInterleaved)
+                                    if(inInterleaved)
                                         str += " lwbIn, ";
                                     else
                                         str += " bufInRe, bufInIm, ";
@@ -762,7 +770,7 @@ namespace StockhamGenerator
                                     }
                                     str += ldsArgs;
 
-                                    if (outInterleaved)
+                                    if(outInterleaved)
                                         str += ",  lwbOut";
                                     else
                                         str += ", bufOutRe, bufOutIm";
@@ -789,7 +797,10 @@ namespace StockhamGenerator
                 }
         }
 
-        void GenerateSingleGlobalKernel(std::string& str, rocfft_result_placement placeness, bool inInterleaved, bool outInterleaved)
+        void GenerateSingleGlobalKernel(std::string&            str,
+                                        rocfft_result_placement placeness,
+                                        bool                    inInterleaved,
+                                        bool                    outInterleaved)
         {
             // use interleaved LDS when halfLds constraint absent
             bool ldsInterleaved = inInterleaved || outInterleaved;
@@ -812,7 +823,7 @@ namespace StockhamGenerator
                 else
                     str += std::to_string(workGroupSize);
                 str += " transforms: " + std::to_string(numTrans)
-                        + " Passes: " + std::to_string(numPasses) + "\n";
+                       + " Passes: " + std::to_string(numPasses) + "\n";
                 // FFT kernel begin
                 // Function signature
                 str += "template <typename T, StrideBin sb>\n";
@@ -837,7 +848,7 @@ namespace StockhamGenerator
                 if(blockCompute && name_suffix == "_sbcc")
                 {
                     str += "const " + r2Type
-                            + " * __restrict__ twiddles_large, "; // blockCompute introduce
+                           + " * __restrict__ twiddles_large, "; // blockCompute introduce
                     // one more twiddle
                     // parameter
                 }
@@ -1072,8 +1083,7 @@ namespace StockhamGenerator
                 {
 
                     if(blockCompute)
-                        str += OffsetCalcBlockCompute(
-                            "ioOffset", "stride_in", "", "", true, false);
+                        str += OffsetCalcBlockCompute("ioOffset", "stride_in", "", "", true, false);
                     else
                         str += OffsetCalc("ioOffset", "stride_in", "", "", false);
 
@@ -1103,8 +1113,7 @@ namespace StockhamGenerator
                     }
                     else
                     {
-                        str += OffsetCalc(
-                            "iOffset", "stride_in", "oOffset", "stride_out", true);
+                        str += OffsetCalc("iOffset", "stride_in", "oOffset", "stride_out", true);
                     }
 
                     str += "\t";
@@ -1180,8 +1189,8 @@ namespace StockhamGenerator
                             comp = c ? ".y" : ".x";
                         if(!inInterleaved)
                             readBuf = (placeness == rocfft_placement_inplace)
-                                            ? (c ? "lwbIm" : "lwbRe")
-                                            : (c ? "lwbInIm" : "lwbInRe");
+                                          ? (c ? "lwbIm" : "lwbRe")
+                                          : (c ? "lwbInIm" : "lwbInRe");
 
                         if((blockComputeType == BCT_C2C) || (blockComputeType == BCT_C2R))
                         {
@@ -1295,8 +1304,8 @@ namespace StockhamGenerator
                     if(inInterleaved)
                         inBuf = params.fft_hasPreCallback ? "gbIn, " : "lwbIn, ";
                     else
-                        inBuf = params.fft_hasPreCallback ? "gbInRe, gbInIm, "
-                                                            : "lwbInRe, lwbInIm, ";
+                        inBuf
+                            = params.fft_hasPreCallback ? "gbInRe, gbInIm, " : "lwbInRe, lwbInIm, ";
                     if(outInterleaved)
                         outBuf = params.fft_hasPostCallback ? "gbOut" : "lwbOut";
                     else
@@ -1334,7 +1343,7 @@ namespace StockhamGenerator
                 }
 
                 str += "\t// Perform FFT input: lwb(In) ; output: lwb(Out); working "
-                        "space: lds \n";
+                       "space: lds \n";
                 str += "\t// rw, b, me% control read/write; then ldsOffset, lwb, lds\n";
 
                 std::string ldsOff;
@@ -1389,7 +1398,7 @@ namespace StockhamGenerator
                 str += ");\n";
 
                 if(blockCompute
-                    || realSpecial) // the "}" enclose the loop introduced by blockCompute
+                   || realSpecial) // the "}" enclose the loop introduced by blockCompute
                 {
                     str += "\n\t}\n\n";
                 }
@@ -1437,8 +1446,8 @@ namespace StockhamGenerator
                             comp = c ? ".y" : ".x";
                         if(!outInterleaved)
                             writeBuf = (placeness == rocfft_placement_inplace)
-                                            ? (c ? "lwbIm" : "lwbRe")
-                                            : (c ? "lwbOutIm" : "lwbOutRe");
+                                           ? (c ? "lwbIm" : "lwbRe")
+                                           : (c ? "lwbOutIm" : "lwbOutRe");
 
                         if((blockComputeType == BCT_C2C) || (blockComputeType == BCT_R2C))
                         {
