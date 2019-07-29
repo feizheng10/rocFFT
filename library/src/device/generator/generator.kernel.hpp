@@ -584,6 +584,10 @@ namespace StockhamGenerator
                         if(numPasses == 1)
                         {
                             GenerateSinglePassKernel(
+                                str, fwd, scale, inReal, outReal, false, true, p);
+                            GenerateSinglePassKernel(
+                                str, fwd, scale, inReal, outReal, true, false, p);
+                            GenerateSinglePassKernel(
                                 str, fwd, scale, inReal, outReal, false, false, p);
                         }
                         else if(p == passes.cbegin())
