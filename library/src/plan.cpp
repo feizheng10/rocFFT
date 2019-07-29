@@ -238,15 +238,6 @@ rocfft_status rocfft_plan_create_internal(rocfft_plan                   plan,
     // Check plan validity
     if(description != nullptr)
     {
-        // We do not currently support planar formats.
-        // TODO: remove these checks when complex planar format is enabled.
-        if(description->inArrayType == rocfft_array_type_complex_planar
-           || description->outArrayType == rocfft_array_type_complex_planar)
-            return rocfft_status_invalid_array_type;
-        if(description->inArrayType == rocfft_array_type_hermitian_planar
-           || description->outArrayType == rocfft_array_type_hermitian_planar)
-            return rocfft_status_invalid_array_type;
-
         switch(transform_type)
         {
         case rocfft_transform_type_complex_forward:
