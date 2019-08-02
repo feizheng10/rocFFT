@@ -31,7 +31,7 @@ extern "C" rocfft_status initParams(FFTKernelGenKeyParams& params,
       Parameter : basic plan info
      =================================================================== */
 
-    params.fft_outputLayout = params.fft_inputLayout = rocfft_array_type_complex_interleaved;
+    //params.fft_outputLayout = params.fft_inputLayout = rocfft_array_type_complex_interleaved;
 
     params.blockCompute = blockCompute;
 
