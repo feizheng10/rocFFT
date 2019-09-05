@@ -1227,7 +1227,9 @@ void TreeNode::RecursiveBuildTree()
 
     if(parent != nullptr)
     {
-        placement = parent->placement; // inherit from parent as init value, may change after
+        // Inherit from parent as init value, may change after.
+        // It is incomplete logic...should be fixed in a better way.
+        placement = parent->placement;
     }
 
     if((parent == nullptr)
@@ -1919,10 +1921,16 @@ void TreeNode::TraverseTreeAssignBuffersLogicA(OperatingBuffer& flipIn,
     case CS_2D_RTRT:
     case CS_3D_RTRT:
     {
-        if(parent != nullptr
-           && (parent->scheme == CS_KERNEL_COPY_R_TO_CMPLX
-               || parent->scheme == CS_REAL_TRANSFORM_USING_CMPLX
-               || parent->scheme == CS_KERNEL_COPY_CMPLX_TO_R))
+        // R2C/C2R are special cases. If the parent is R2C/C2R, non-top 2D/3D
+        // child node does not consider parent initial placement.
+        if((parent != nullptr)
+           && (parent->scheme == CS_REAL_TRANSFORM_USING_CMPLX
+               || parent->scheme == CS_KERNEL_COPY_R_TO_CMPLX
+               || parent->scheme == CS_KERNEL_COPY_CMPLX_TO_HERM
+               || parent->scheme == CS_KERNEL_COPY_HERM_TO_CMPLX
+               || parent->scheme == CS_KERNEL_COPY_CMPLX_TO_R
+               || parent->scheme == CS_REAL_TRANSFORM_EVEN || parent->scheme == CS_KERNEL_R_TO_CMPLX
+               || parent->scheme == CS_KERNEL_CMPLX_TO_R))
         {
             childNodes[0]->obIn = obOutBuf;
         }
@@ -1950,14 +1958,7 @@ void TreeNode::TraverseTreeAssignBuffersLogicA(OperatingBuffer& flipIn,
         childNodes[3]->obIn  = OB_TEMP;
         childNodes[3]->obOut = obOutBuf;
 
-        if(parent == nullptr)
-        {
-            obIn = (placement == rocfft_placement_inplace) ? childNodes[3]->obOut : OB_USER_IN;
-        }
-        else
-        {
-            obIn = childNodes[0]->obIn;
-        }
+        obIn  = childNodes[0]->obIn;
         obOut = childNodes[3]->obOut;
     }
     break;
