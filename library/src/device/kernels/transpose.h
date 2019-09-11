@@ -26,6 +26,53 @@
 #include "common.h"
 #include "rocfft_hip.h"
 
+
+#define TRANSPOSE_TWIDDLE_MUL()                                                                \
+                if(WITH_TWL)                                                                   \
+                {                                                                              \
+                    if(TWL == 2)                                                               \
+                    {                                                                          \
+                        if(DIR == -1)                                                          \
+                        {                                                                      \
+                            TWIDDLE_STEP_MUL_FWD(                                              \
+                                TWLstep2, twiddles_large, (gx + tx1) * (gy + ty1 + i), tmp);   \
+                        }                                                                      \
+                        else                                                                   \
+                        {                                                                      \
+                            TWIDDLE_STEP_MUL_INV(                                              \
+                                TWLstep2, twiddles_large, (gx + tx1) * (gy + ty1 + i), tmp);   \
+                        }                                                                      \
+                    }                                                                          \
+                    else if(TWL == 3)                                                          \
+                    {                                                                          \
+                        if(DIR == -1)                                                          \
+                        {                                                                      \
+                            TWIDDLE_STEP_MUL_FWD(                                              \
+                                TWLstep3, twiddles_large, (gx + tx1) * (gy + ty1 + i), tmp);   \
+                        }                                                                      \
+                        else                                                                   \
+                        {                                                                      \
+                            TWIDDLE_STEP_MUL_INV(                                              \
+                                TWLstep3, twiddles_large, (gx + tx1) * (gy + ty1 + i), tmp);   \
+                        }                                                                      \
+                    }                                                                          \
+                    else if(TWL == 4)                                                          \
+                    {                                                                          \
+                        if(DIR == -1)                                                          \
+                        {                                                                      \
+                            TWIDDLE_STEP_MUL_FWD(                                              \
+                                TWLstep4, twiddles_large, (gx + tx1) * (gy + ty1 + i), tmp);   \
+                        }                                                                      \
+                        else                                                                   \
+                        {                                                                      \
+                            TWIDDLE_STEP_MUL_INV(                                              \
+                                TWLstep4, twiddles_large, (gx + tx1) * (gy + ty1 + i), tmp);   \
+                        }                                                                      \
+                    }                                                                          \
+                }                                                                              \
+                                                                                               \
+                shared_A[tx1][ty1 + i] = tmp; // the transpose taking place here
+
 /*
    transpose input of size m * n (up to DIM_X * DIM_X) to output of size n * m
    input, output are in device memory
@@ -58,50 +105,7 @@ __device__ void transpose_tile_device(const T*     input,
         for(int i = 0; i < DIM_X; i += DIM_Y)
         {
             T tmp = input[tx1 + (ty1 + i) * ld_in];
-            if(WITH_TWL)
-            {
-                if(TWL == 2)
-                {
-                    if(DIR == -1)
-                    {
-                        TWIDDLE_STEP_MUL_FWD(
-                            TWLstep2, twiddles_large, (gx + tx1) * (gy + ty1 + i), tmp);
-                    }
-                    else
-                    {
-                        TWIDDLE_STEP_MUL_INV(
-                            TWLstep2, twiddles_large, (gx + tx1) * (gy + ty1 + i), tmp);
-                    }
-                }
-                else if(TWL == 3)
-                {
-                    if(DIR == -1)
-                    {
-                        TWIDDLE_STEP_MUL_FWD(
-                            TWLstep3, twiddles_large, (gx + tx1) * (gy + ty1 + i), tmp);
-                    }
-                    else
-                    {
-                        TWIDDLE_STEP_MUL_INV(
-                            TWLstep3, twiddles_large, (gx + tx1) * (gy + ty1 + i), tmp);
-                    }
-                }
-                else if(TWL == 4)
-                {
-                    if(DIR == -1)
-                    {
-                        TWIDDLE_STEP_MUL_FWD(
-                            TWLstep4, twiddles_large, (gx + tx1) * (gy + ty1 + i), tmp);
-                    }
-                    else
-                    {
-                        TWIDDLE_STEP_MUL_INV(
-                            TWLstep4, twiddles_large, (gx + tx1) * (gy + ty1 + i), tmp);
-                    }
-                }
-            }
-
-            shared_A[tx1][ty1 + i] = tmp; // the transpose taking place here
+            TRANSPOSE_TWIDDLE_MUL();
         }
 
         __syncthreads();
@@ -120,50 +124,7 @@ __device__ void transpose_tile_device(const T*     input,
             if(tx1 < n && (ty1 + i) < m)
             {
                 T tmp = input[tx1 + (ty1 + i) * ld_in];
-                if(WITH_TWL)
-                {
-                    if(TWL == 2)
-                    {
-                        if(DIR == -1)
-                        {
-                            TWIDDLE_STEP_MUL_FWD(
-                                TWLstep2, twiddles_large, (gx + tx1) * (gy + ty1 + i), tmp);
-                        }
-                        else
-                        {
-                            TWIDDLE_STEP_MUL_INV(
-                                TWLstep2, twiddles_large, (gx + tx1) * (gy + ty1 + i), tmp);
-                        }
-                    }
-                    else if(TWL == 3)
-                    {
-                        if(DIR == -1)
-                        {
-                            TWIDDLE_STEP_MUL_FWD(
-                                TWLstep3, twiddles_large, (gx + tx1) * (gy + ty1 + i), tmp);
-                        }
-                        else
-                        {
-                            TWIDDLE_STEP_MUL_INV(
-                                TWLstep3, twiddles_large, (gx + tx1) * (gy + ty1 + i), tmp);
-                        }
-                    }
-                    else if(TWL == 4)
-                    {
-                        if(DIR == -1)
-                        {
-                            TWIDDLE_STEP_MUL_FWD(
-                                TWLstep4, twiddles_large, (gx + tx1) * (gy + ty1 + i), tmp);
-                        }
-                        else
-                        {
-                            TWIDDLE_STEP_MUL_INV(
-                                TWLstep4, twiddles_large, (gx + tx1) * (gy + ty1 + i), tmp);
-                        }
-                    }
-                }
-
-                shared_A[tx1][ty1 + i] = tmp; // the transpose taking place here
+                TRANSPOSE_TWIDDLE_MUL();
             }
         }
 
