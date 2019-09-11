@@ -8,10 +8,10 @@ LABEL maintainer="saad.rahim@amd"
 COPY *.rpm /tmp/
 
 # Install the rpm package, and print out contents of expected changed locations
-RUN yum -y update && yum install -y\
+RUN zypper -n update && zypper install -n\
     /tmp/rocfft-*.rpm \
   && rm -f /tmp/*.rpm \
-  && yum -y clean all \
+  && zypper -n clean -all \
   && rm -rf /var/lib/apt/lists/* \
   && printf "ls -la /etc/ld.so.conf.d/\n" && ls -la /etc/ld.so.conf.d/ \
   && printf "ls -la /opt/rocm/include\n" && ls -la /opt/rocm/include \

@@ -70,7 +70,6 @@ set(rocfft_test_source
   )
 
 set(rocfft_test_includes
-  accuracy_test_common.h
   buffer_memory.h
   buffer.h
   rocfft_transform.h
@@ -104,14 +103,12 @@ else( )
   target_link_libraries( rocfft-test PRIVATE hip::hip_hcc )
 endif( )
 
-if( CMAKE_CXX_COMPILER MATCHES ".*/hcc$" )
-  # Remove following when hcc is fixed; hcc emits following spurious warning ROCm v1.6.1
-  # "clang-5.0: warning: argument unused during compilation: '-isystem /opt/rocm/include'"
-  target_compile_options( rocfft-test PRIVATE -Wno-unused-command-line-argument )
+if(CMAKE_CXX_COMPILER MATCHES ".*/hcc$")
+  target_compile_options( rocfft-test PRIVATE -Wno-unused-command-line-argument -hc )
+endif( )
 
-  # foreach( target ${AMDGPU_TARGETS} )
-  #   target_link_libraries( rocfft-test PRIVATE --amdgpu-target=${target} )
-  # endforeach( )
+if(HIP_PLATFORM STREQUAL "hip-clang")
+  target_compile_options( rocfft-test PRIVATE -Wno-unused-command-line-argument )
 endif( )
 
 set( THREADS_PREFER_PTHREAD_FLAG ON )
