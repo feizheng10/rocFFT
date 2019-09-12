@@ -1024,7 +1024,7 @@ void TreeNode::Build1DBluestein()
     childNodes.push_back(resmulPlan);
 }
 
-void Build1D_Compute_divLengthPow2() {}
+void Build1D_Compute_divLengthPow2() { }
 
 void TreeNode::Build1DCS_L1D_TRTRT(const size_t divLength0, const size_t divLength1)
 {
