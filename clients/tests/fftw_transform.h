@@ -386,7 +386,7 @@ public:
         clear_data_buffer();
     }
 
-    ~fftw() {}
+    ~fftw() { }
 
     rocfft_array_type initialized_input_layout()
     {

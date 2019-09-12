@@ -266,7 +266,7 @@ __global__ void r2c_1d_post_process_kernel(size_t   input_size,
     size_t idx_q = (input_size >> 1) - idx_p;
 
     T p, q;
-    if( idx_p <= input_size >> 2  && idx_p > 0 )
+    if(idx_p <= input_size >> 2 && idx_p > 0)
     {
         p = input[idx_p];
         q = input[idx_q];

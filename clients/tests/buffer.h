@@ -123,7 +123,7 @@ public:
         clear();
     }
 
-    ~buffer() {}
+    ~buffer() { }
 
     // This assignment operator only copies _data_.  it does not
     // change the rest of the buffer information and in fact, it

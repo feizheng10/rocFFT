@@ -399,7 +399,8 @@ int transform(size_t*                 lengths,
 
     if((place == rocfft_placement_inplace) && packed && (scale == 1.0) && (inOffset[0] == 0)
        && (inOffset[1] == 0) && (outOffset[0] == 0) && (outOffset[1] == 0)
-       && (inArrType == rocfft_array_type_complex_interleaved && outArrType == rocfft_array_type_complex_interleaved))
+       && (inArrType == rocfft_array_type_complex_interleaved
+           && outArrType == rocfft_array_type_complex_interleaved))
     {
         LIB_V_THROW(rocfft_plan_create(
                         &plan, place, transformType, precision, dim, lengths, batchSize, NULL),

@@ -497,7 +497,7 @@ template <typename T, typename CT>
 class BasicInterfaceBasisTest : public ::testing::Test
 {
 protected:
-    virtual void TearDown() {}
+    virtual void TearDown() { }
     virtual void SetUp()
     {
         in  = NULL;

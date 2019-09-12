@@ -231,14 +231,14 @@ void TransformPowX(const ExecPlan&       execPlan,
         {
         case OB_USER_IN:
             data.bufIn[0] = in_buffer[0];
-            if (data.node->inArrayType == rocfft_array_type_complex_planar)
+            if(data.node->inArrayType == rocfft_array_type_complex_planar)
             {
                 data.bufIn[1] = in_buffer[1];
             }
             break;
         case OB_USER_OUT:
             data.bufIn[0] = out_buffer[0];
-            if (data.node->outArrayType == rocfft_array_type_complex_planar)
+            if(data.node->outArrayType == rocfft_array_type_complex_planar)
             {
                 data.bufIn[1] = out_buffer[1];
             }
@@ -267,14 +267,14 @@ void TransformPowX(const ExecPlan&       execPlan,
         {
         case OB_USER_IN:
             data.bufOut[0] = in_buffer[0];
-            if (data.node->outArrayType == rocfft_array_type_complex_planar)
+            if(data.node->outArrayType == rocfft_array_type_complex_planar)
             {
                 data.bufOut[1] = in_buffer[1];
             }
             break;
         case OB_USER_OUT:
             data.bufOut[0] = out_buffer[0];
-            if (data.node->outArrayType == rocfft_array_type_complex_planar)
+            if(data.node->outArrayType == rocfft_array_type_complex_planar)
             {
                 data.bufOut[1] = out_buffer[1];
             }

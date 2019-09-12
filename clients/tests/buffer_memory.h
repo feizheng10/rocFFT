@@ -67,7 +67,7 @@ public:
         clear();
     }
 
-    ~buffer_memory() {}
+    ~buffer_memory() { }
 
     buffer_memory<T>& operator=(const buffer_memory<T>& that)
     {

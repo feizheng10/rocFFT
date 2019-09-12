@@ -343,7 +343,7 @@ public:
     }
 
 private:
-    LogSingleton() {}
+    LogSingleton() { }
 
     rocfft_layer_mode layer_mode;
     std::ostream*     log_trace_os;
