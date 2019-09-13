@@ -2927,6 +2927,41 @@ void TreeNode::TraverseTreeCollectLeafsLogicA(std::vector<TreeNode*>& seq,
     }
 }
 
+// Revise leaf nodes inArrayType and outArrayType to work with planar format
+void TreeNode::ReviseLeafsArrayType(std::vector<TreeNode*>& seq)
+{
+    // Let's use 'I->I', 'I->P', 'P->I', 'P->P' to denote the regular cases we need support.
+    // To support planar format, one of the simple ways is:
+    //   - keep the orignal logic for 'I->I'
+    //   - For 'P->I', make the 1st leaf node to 'P->I' only
+    //   - For 'I->P', make the last leaf node to 'I->P' only
+    // We could change the schedule after when tunning performance
+
+    if((inArrayType == rocfft_array_type_complex_interleaved
+        && outArrayType == rocfft_array_type_complex_interleaved)
+       || (inArrayType == rocfft_array_type_real
+           && outArrayType == rocfft_array_type_hermitian_interleaved)
+       || (inArrayType == rocfft_array_type_hermitian_interleaved
+           && outArrayType == rocfft_array_type_real))
+    {
+        return;
+    }
+
+    if(inArrayType == rocfft_array_type_complex_planar
+       || inArrayType == rocfft_array_type_hermitian_planar)
+    {
+        // change the 1st leaf node to 'planar -> interleaved'
+        seq.front()->inArrayType = rocfft_array_type_complex_planar;
+    }
+
+    if(outArrayType == rocfft_array_type_complex_planar
+       || outArrayType == rocfft_array_type_hermitian_planar)
+    {
+        // change the last leaf node to 'interleaved -> planar'
+        seq.back()->outArrayType = rocfft_array_type_complex_planar;
+    }
+}
+
 void TreeNode::Print(std::ostream& os, const int indent) const
 {
     std::string indentStr;
@@ -3056,6 +3091,7 @@ void ProcessNode(ExecPlan& execPlan)
     size_t chirpSize        = 0;
     execPlan.rootPlan->TraverseTreeCollectLeafsLogicA(
         execPlan.execSeq, tmpBufSize, cmplxForRealSize, blueSize, chirpSize);
+    execPlan.rootPlan->ReviseLeafsArrayType(execPlan.execSeq);
     execPlan.workBufSize      = tmpBufSize + cmplxForRealSize + blueSize + chirpSize;
     execPlan.tmpWorkBufSize   = tmpBufSize;
     execPlan.copyWorkBufSize  = cmplxForRealSize;

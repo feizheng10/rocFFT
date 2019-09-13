@@ -234,6 +234,7 @@ public:
                                         size_t&                 cmplxForRealSize,
                                         size_t&                 blueSize,
                                         size_t&                 chirpSize);
+    void ReviseLeafsArrayType(std::vector<TreeNode*>& seq);
     void Print(std::ostream& os = std::cout, int indent = 0) const;
 
     // logic B - using in-place transposes, todo
