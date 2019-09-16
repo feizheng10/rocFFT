@@ -48,11 +48,11 @@
               number of matrices processed
     ********************************************************************/
 
-template <typename T, int TRANSPOSE_DIM_X, int TRANSPOSE_DIM_Y>
+template <typename T, typename TA, typename TB, int TRANSPOSE_DIM_X, int TRANSPOSE_DIM_Y>
 rocfft_status rocfft_transpose_outofplace_template(size_t      m,
                                                    size_t      n,
-                                                   const T*    A,
-                                                   T*          B,
+                                                   const TA*   A,
+                                                   TB*         B,
                                                    void*       twiddles_large,
                                                    size_t      count,
                                                    size_t      dim,
@@ -84,6 +84,8 @@ rocfft_status rocfft_transpose_outofplace_template(size_t      m,
             {
                 if(noCorner)
                     hipLaunchKernelGGL(HIP_KERNEL_NAME(transpose_kernel2<T,
+                                                                         TA,
+                                                                         TB,
                                                                          TRANSPOSE_DIM_X,
                                                                          TRANSPOSE_DIM_Y,
                                                                          true,
@@ -103,6 +105,8 @@ rocfft_status rocfft_transpose_outofplace_template(size_t      m,
                                        stride_out);
                 else
                     hipLaunchKernelGGL(HIP_KERNEL_NAME(transpose_kernel2<T,
+                                                                         TA,
+                                                                         TB,
                                                                          TRANSPOSE_DIM_X,
                                                                          TRANSPOSE_DIM_Y,
                                                                          true,
@@ -125,6 +129,8 @@ rocfft_status rocfft_transpose_outofplace_template(size_t      m,
             {
                 if(noCorner)
                     hipLaunchKernelGGL(HIP_KERNEL_NAME(transpose_kernel2<T,
+                                                                         TA,
+                                                                         TB,
                                                                          TRANSPOSE_DIM_X,
                                                                          TRANSPOSE_DIM_Y,
                                                                          true,
@@ -144,6 +150,8 @@ rocfft_status rocfft_transpose_outofplace_template(size_t      m,
                                        stride_out);
                 else
                     hipLaunchKernelGGL(HIP_KERNEL_NAME(transpose_kernel2<T,
+                                                                         TA,
+                                                                         TB,
                                                                          TRANSPOSE_DIM_X,
                                                                          TRANSPOSE_DIM_Y,
                                                                          true,
@@ -169,6 +177,8 @@ rocfft_status rocfft_transpose_outofplace_template(size_t      m,
             {
                 if(noCorner)
                     hipLaunchKernelGGL(HIP_KERNEL_NAME(transpose_kernel2<T,
+                                                                         TA,
+                                                                         TB,
                                                                          TRANSPOSE_DIM_X,
                                                                          TRANSPOSE_DIM_Y,
                                                                          true,
@@ -188,6 +198,8 @@ rocfft_status rocfft_transpose_outofplace_template(size_t      m,
                                        stride_out);
                 else
                     hipLaunchKernelGGL(HIP_KERNEL_NAME(transpose_kernel2<T,
+                                                                         TA,
+                                                                         TB,
                                                                          TRANSPOSE_DIM_X,
                                                                          TRANSPOSE_DIM_Y,
                                                                          true,
@@ -210,6 +222,8 @@ rocfft_status rocfft_transpose_outofplace_template(size_t      m,
             {
                 if(noCorner)
                     hipLaunchKernelGGL(HIP_KERNEL_NAME(transpose_kernel2<T,
+                                                                         TA,
+                                                                         TB,
                                                                          TRANSPOSE_DIM_X,
                                                                          TRANSPOSE_DIM_Y,
                                                                          true,
@@ -229,6 +243,8 @@ rocfft_status rocfft_transpose_outofplace_template(size_t      m,
                                        stride_out);
                 else
                     hipLaunchKernelGGL(HIP_KERNEL_NAME(transpose_kernel2<T,
+                                                                         TA,
+                                                                         TB,
                                                                          TRANSPOSE_DIM_X,
                                                                          TRANSPOSE_DIM_Y,
                                                                          true,
@@ -254,6 +270,8 @@ rocfft_status rocfft_transpose_outofplace_template(size_t      m,
             {
                 if(noCorner)
                     hipLaunchKernelGGL(HIP_KERNEL_NAME(transpose_kernel2<T,
+                                                                         TA,
+                                                                         TB,
                                                                          TRANSPOSE_DIM_X,
                                                                          TRANSPOSE_DIM_Y,
                                                                          true,
@@ -273,6 +291,8 @@ rocfft_status rocfft_transpose_outofplace_template(size_t      m,
                                        stride_out);
                 else
                     hipLaunchKernelGGL(HIP_KERNEL_NAME(transpose_kernel2<T,
+                                                                         TA,
+                                                                         TB,
                                                                          TRANSPOSE_DIM_X,
                                                                          TRANSPOSE_DIM_Y,
                                                                          true,
@@ -295,6 +315,8 @@ rocfft_status rocfft_transpose_outofplace_template(size_t      m,
             {
                 if(noCorner)
                     hipLaunchKernelGGL(HIP_KERNEL_NAME(transpose_kernel2<T,
+                                                                         TA,
+                                                                         TB,
                                                                          TRANSPOSE_DIM_X,
                                                                          TRANSPOSE_DIM_Y,
                                                                          true,
@@ -314,6 +336,8 @@ rocfft_status rocfft_transpose_outofplace_template(size_t      m,
                                        stride_out);
                 else
                     hipLaunchKernelGGL(HIP_KERNEL_NAME(transpose_kernel2<T,
+                                                                         TA,
+                                                                         TB,
                                                                          TRANSPOSE_DIM_X,
                                                                          TRANSPOSE_DIM_Y,
                                                                          true,
@@ -336,43 +360,57 @@ rocfft_status rocfft_transpose_outofplace_template(size_t      m,
         else
         {
             if(noCorner)
-                hipLaunchKernelGGL(
-                    HIP_KERNEL_NAME(
-                        transpose_kernel2<T, TRANSPOSE_DIM_X, TRANSPOSE_DIM_Y, false, 0, 0, true>),
-                    dim3(grid),
-                    dim3(threads),
-                    0,
-                    rocfft_stream,
-                    A,
-                    B,
-                    (T*)twiddles_large,
-                    dim,
-                    lengths,
-                    stride_in,
-                    stride_out);
+                hipLaunchKernelGGL(HIP_KERNEL_NAME(transpose_kernel2<T,
+                                                                     TA,
+                                                                     TB,
+                                                                     TRANSPOSE_DIM_X,
+                                                                     TRANSPOSE_DIM_Y,
+                                                                     false,
+                                                                     0,
+                                                                     0,
+                                                                     true>),
+                                   dim3(grid),
+                                   dim3(threads),
+                                   0,
+                                   rocfft_stream,
+                                   A,
+                                   B,
+                                   (T*)twiddles_large,
+                                   dim,
+                                   lengths,
+                                   stride_in,
+                                   stride_out);
             else
-                hipLaunchKernelGGL(
-                    HIP_KERNEL_NAME(
-                        transpose_kernel2<T, TRANSPOSE_DIM_X, TRANSPOSE_DIM_Y, false, 0, 0, false>),
-                    dim3(grid),
-                    dim3(threads),
-                    0,
-                    rocfft_stream,
-                    A,
-                    B,
-                    (T*)twiddles_large,
-                    dim,
-                    lengths,
-                    stride_in,
-                    stride_out);
+                hipLaunchKernelGGL(HIP_KERNEL_NAME(transpose_kernel2<T,
+                                                                     TA,
+                                                                     TB,
+                                                                     TRANSPOSE_DIM_X,
+                                                                     TRANSPOSE_DIM_Y,
+                                                                     false,
+                                                                     0,
+                                                                     0,
+                                                                     false>),
+                                   dim3(grid),
+                                   dim3(threads),
+                                   0,
+                                   rocfft_stream,
+                                   A,
+                                   B,
+                                   (T*)twiddles_large,
+                                   dim,
+                                   lengths,
+                                   stride_in,
+                                   stride_out);
         }
     }
     else
     {
         if(noCorner)
+        {
+            std::cout << "transpose_kernel2_scheme noCorner\n";
             hipLaunchKernelGGL(
                 HIP_KERNEL_NAME(
-                    transpose_kernel2_scheme<T, TRANSPOSE_DIM_X, TRANSPOSE_DIM_Y, true>),
+                    transpose_kernel2_scheme<T, TA, TB, TRANSPOSE_DIM_X, TRANSPOSE_DIM_Y, true>),
                 dim3(grid),
                 dim3(threads),
                 0,
@@ -385,10 +423,14 @@ rocfft_status rocfft_transpose_outofplace_template(size_t      m,
                 stride_in,
                 stride_out,
                 scheme);
+
+        }
         else
+        {
+            std::cout << "transpose_kernel2_scheme Corner\n";
             hipLaunchKernelGGL(
                 HIP_KERNEL_NAME(
-                    transpose_kernel2_scheme<T, TRANSPOSE_DIM_X, TRANSPOSE_DIM_Y, false>),
+                    transpose_kernel2_scheme<T, TA, TB, TRANSPOSE_DIM_X, TRANSPOSE_DIM_Y, false>),
                 dim3(grid),
                 dim3(threads),
                 0,
@@ -401,398 +443,7 @@ rocfft_status rocfft_transpose_outofplace_template(size_t      m,
                 stride_in,
                 stride_out,
                 scheme);
-    }
-
-    return rocfft_status_success;
-}
-
-template <typename T, int TRANSPOSE_DIM_X, int TRANSPOSE_DIM_Y>
-rocfft_status rocfft_transpose_outofplace_template(size_t                m,
-                                                   size_t                n,
-                                                   const real_type_t<T>* A_real,
-                                                   const real_type_t<T>* A_imag,
-                                                   real_type_t<T>*       B_real,
-                                                   real_type_t<T>*       B_imag,
-                                                   void*                 twiddles_large,
-                                                   size_t                count,
-                                                   size_t                dim,
-                                                   size_t*               lengths,
-                                                   size_t*               stride_in,
-                                                   size_t*               stride_out,
-                                                   int                   twl,
-                                                   int                   dir,
-                                                   int                   scheme,
-                                                   hipStream_t           rocfft_stream)
-{
-
-    dim3 grid((n - 1) / TRANSPOSE_DIM_X + 1, ((m - 1) / TRANSPOSE_DIM_X + 1), count);
-    dim3 threads(TRANSPOSE_DIM_X, TRANSPOSE_DIM_Y, 1);
-
-    bool noCorner = false;
-
-    if((n % TRANSPOSE_DIM_X == 0)
-       && (m % TRANSPOSE_DIM_X == 0)) // working threads match problem sizes, no corner cases
-    {
-        noCorner = true;
-    }
-
-    if(scheme == 0)
-    {
-        if(twl == 2)
-        {
-            if(dir == -1)
-            {
-                if(noCorner)
-                    hipLaunchKernelGGL(HIP_KERNEL_NAME(transpose_kernel2<T,
-                                                                         TRANSPOSE_DIM_X,
-                                                                         TRANSPOSE_DIM_Y,
-                                                                         true,
-                                                                         2,
-                                                                         -1,
-                                                                         true>),
-                                       dim3(grid),
-                                       dim3(threads),
-                                       0,
-                                       rocfft_stream,
-                                       A_real,
-                                       A_imag,
-                                       B_real,
-                                       B_imag,
-                                       (T*)twiddles_large,
-                                       dim,
-                                       lengths,
-                                       stride_in,
-                                       stride_out);
-                else
-                    hipLaunchKernelGGL(HIP_KERNEL_NAME(transpose_kernel2<T,
-                                                                         TRANSPOSE_DIM_X,
-                                                                         TRANSPOSE_DIM_Y,
-                                                                         true,
-                                                                         2,
-                                                                         -1,
-                                                                         false>),
-                                       dim3(grid),
-                                       dim3(threads),
-                                       0,
-                                       rocfft_stream,
-                                       A_real,
-                                       A_imag,
-                                       B_real,
-                                       B_imag,
-                                       (T*)twiddles_large,
-                                       dim,
-                                       lengths,
-                                       stride_in,
-                                       stride_out);
-            }
-            else
-            {
-                if(noCorner)
-                    hipLaunchKernelGGL(HIP_KERNEL_NAME(transpose_kernel2<T,
-                                                                         TRANSPOSE_DIM_X,
-                                                                         TRANSPOSE_DIM_Y,
-                                                                         true,
-                                                                         2,
-                                                                         1,
-                                                                         true>),
-                                       dim3(grid),
-                                       dim3(threads),
-                                       0,
-                                       rocfft_stream,
-                                       A_real,
-                                       A_imag,
-                                       B_real,
-                                       B_imag,
-                                       (T*)twiddles_large,
-                                       dim,
-                                       lengths,
-                                       stride_in,
-                                       stride_out);
-                else
-                    hipLaunchKernelGGL(HIP_KERNEL_NAME(transpose_kernel2<T,
-                                                                         TRANSPOSE_DIM_X,
-                                                                         TRANSPOSE_DIM_Y,
-                                                                         true,
-                                                                         2,
-                                                                         1,
-                                                                         false>),
-                                       dim3(grid),
-                                       dim3(threads),
-                                       0,
-                                       rocfft_stream,
-                                       A_real,
-                                       A_imag,
-                                       B_real,
-                                       B_imag,
-                                       (T*)twiddles_large,
-                                       dim,
-                                       lengths,
-                                       stride_in,
-                                       stride_out);
-            }
         }
-        else if(twl == 3)
-        {
-            if(dir == -1)
-            {
-                if(noCorner)
-                    hipLaunchKernelGGL(HIP_KERNEL_NAME(transpose_kernel2<T,
-                                                                         TRANSPOSE_DIM_X,
-                                                                         TRANSPOSE_DIM_Y,
-                                                                         true,
-                                                                         3,
-                                                                         -1,
-                                                                         true>),
-                                       dim3(grid),
-                                       dim3(threads),
-                                       0,
-                                       rocfft_stream,
-                                       A_real,
-                                       A_imag,
-                                       B_real,
-                                       B_imag,
-                                       (T*)twiddles_large,
-                                       dim,
-                                       lengths,
-                                       stride_in,
-                                       stride_out);
-                else
-                    hipLaunchKernelGGL(HIP_KERNEL_NAME(transpose_kernel2<T,
-                                                                         TRANSPOSE_DIM_X,
-                                                                         TRANSPOSE_DIM_Y,
-                                                                         true,
-                                                                         3,
-                                                                         -1,
-                                                                         false>),
-                                       dim3(grid),
-                                       dim3(threads),
-                                       0,
-                                       rocfft_stream,
-                                       A_real,
-                                       A_imag,
-                                       B_real,
-                                       B_imag,
-                                       (T*)twiddles_large,
-                                       dim,
-                                       lengths,
-                                       stride_in,
-                                       stride_out);
-            }
-            else
-            {
-                if(noCorner)
-                    hipLaunchKernelGGL(HIP_KERNEL_NAME(transpose_kernel2<T,
-                                                                         TRANSPOSE_DIM_X,
-                                                                         TRANSPOSE_DIM_Y,
-                                                                         true,
-                                                                         3,
-                                                                         1,
-                                                                         true>),
-                                       dim3(grid),
-                                       dim3(threads),
-                                       0,
-                                       rocfft_stream,
-                                       A_real,
-                                       A_imag,
-                                       B_real,
-                                       B_imag,
-                                       (T*)twiddles_large,
-                                       dim,
-                                       lengths,
-                                       stride_in,
-                                       stride_out);
-                else
-                    hipLaunchKernelGGL(HIP_KERNEL_NAME(transpose_kernel2<T,
-                                                                         TRANSPOSE_DIM_X,
-                                                                         TRANSPOSE_DIM_Y,
-                                                                         true,
-                                                                         3,
-                                                                         1,
-                                                                         false>),
-                                       dim3(grid),
-                                       dim3(threads),
-                                       0,
-                                       rocfft_stream,
-                                       A_real,
-                                       A_imag,
-                                       B_real,
-                                       B_imag,
-                                       (T*)twiddles_large,
-                                       dim,
-                                       lengths,
-                                       stride_in,
-                                       stride_out);
-            }
-        }
-        else if(twl == 4)
-        {
-            if(dir == -1)
-            {
-                if(noCorner)
-                    hipLaunchKernelGGL(HIP_KERNEL_NAME(transpose_kernel2<T,
-                                                                         TRANSPOSE_DIM_X,
-                                                                         TRANSPOSE_DIM_Y,
-                                                                         true,
-                                                                         4,
-                                                                         -1,
-                                                                         true>),
-                                       dim3(grid),
-                                       dim3(threads),
-                                       0,
-                                       rocfft_stream,
-                                       A_real,
-                                       A_imag,
-                                       B_real,
-                                       B_imag,
-                                       (T*)twiddles_large,
-                                       dim,
-                                       lengths,
-                                       stride_in,
-                                       stride_out);
-                else
-                    hipLaunchKernelGGL(HIP_KERNEL_NAME(transpose_kernel2<T,
-                                                                         TRANSPOSE_DIM_X,
-                                                                         TRANSPOSE_DIM_Y,
-                                                                         true,
-                                                                         4,
-                                                                         -1,
-                                                                         false>),
-                                       dim3(grid),
-                                       dim3(threads),
-                                       0,
-                                       rocfft_stream,
-                                       A_real,
-                                       A_imag,
-                                       B_real,
-                                       B_imag,
-                                       (T*)twiddles_large,
-                                       dim,
-                                       lengths,
-                                       stride_in,
-                                       stride_out);
-            }
-            else
-            {
-                if(noCorner)
-                    hipLaunchKernelGGL(HIP_KERNEL_NAME(transpose_kernel2<T,
-                                                                         TRANSPOSE_DIM_X,
-                                                                         TRANSPOSE_DIM_Y,
-                                                                         true,
-                                                                         4,
-                                                                         1,
-                                                                         true>),
-                                       dim3(grid),
-                                       dim3(threads),
-                                       0,
-                                       rocfft_stream,
-                                       A_real,
-                                       A_imag,
-                                       B_real,
-                                       B_imag,
-                                       (T*)twiddles_large,
-                                       dim,
-                                       lengths,
-                                       stride_in,
-                                       stride_out);
-                else
-                    hipLaunchKernelGGL(HIP_KERNEL_NAME(transpose_kernel2<T,
-                                                                         TRANSPOSE_DIM_X,
-                                                                         TRANSPOSE_DIM_Y,
-                                                                         true,
-                                                                         4,
-                                                                         1,
-                                                                         false>),
-                                       dim3(grid),
-                                       dim3(threads),
-                                       0,
-                                       rocfft_stream,
-                                       A_real,
-                                       A_imag,
-                                       B_real,
-                                       B_imag,
-                                       (T*)twiddles_large,
-                                       dim,
-                                       lengths,
-                                       stride_in,
-                                       stride_out);
-            }
-        }
-        else
-        {
-            if(noCorner)
-                hipLaunchKernelGGL(
-                    HIP_KERNEL_NAME(
-                        transpose_kernel2<T, TRANSPOSE_DIM_X, TRANSPOSE_DIM_Y, false, 0, 0, true>),
-                    dim3(grid),
-                    dim3(threads),
-                    0,
-                    rocfft_stream,
-                    A_real,
-                    A_imag,
-                    B_real,
-                    B_imag,
-                    (T*)twiddles_large,
-                    dim,
-                    lengths,
-                    stride_in,
-                    stride_out);
-            else
-                hipLaunchKernelGGL(
-                    HIP_KERNEL_NAME(
-                        transpose_kernel2<T, TRANSPOSE_DIM_X, TRANSPOSE_DIM_Y, false, 0, 0, false>),
-                    dim3(grid),
-                    dim3(threads),
-                    0,
-                    rocfft_stream,
-                    A_real,
-                    A_imag,
-                    B_real,
-                    B_imag,
-                    (T*)twiddles_large,
-                    dim,
-                    lengths,
-                    stride_in,
-                    stride_out);
-        }
-    }
-    else
-    {
-        if(noCorner)
-            hipLaunchKernelGGL(
-                HIP_KERNEL_NAME(
-                    transpose_kernel2_scheme<T, TRANSPOSE_DIM_X, TRANSPOSE_DIM_Y, true>),
-                dim3(grid),
-                dim3(threads),
-                0,
-                rocfft_stream,
-                A_real,
-                A_imag,
-                B_real,
-                B_imag,
-                (T*)twiddles_large,
-                dim,
-                lengths,
-                stride_in,
-                stride_out,
-                scheme);
-        else
-            hipLaunchKernelGGL(
-                HIP_KERNEL_NAME(
-                    transpose_kernel2_scheme<T, TRANSPOSE_DIM_X, TRANSPOSE_DIM_Y, false>),
-                dim3(grid),
-                dim3(threads),
-                0,
-                rocfft_stream,
-                A_real,
-                A_imag,
-                B_real,
-                B_imag,
-                (T*)twiddles_large,
-                dim,
-                lengths,
-                stride_in,
-                stride_out,
-                scheme);
     }
 
     return rocfft_status_success;
@@ -821,18 +472,6 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p)
         m      = data->node->length[1] * data->node->length[2];
         n      = data->node->length[0];
     }
-
-    // size_t ld_in = data->node->inStride[1];
-    // size_t ld_out = data->node->outStride[1];
-
-    /*
-  if (ld_in < m )
-      return rocfft_status_invalid_dimensions;
-  else if (ld_out < n )
-      return rocfft_status_invalid_dimensions;
-
-  if(m == 0 || n == 0 ) return rocfft_status_success;
-  */
 
     int twl = 0;
 
@@ -864,11 +503,11 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p)
        && data->node->outArrayType == rocfft_array_type_complex_interleaved)
     {
         if(data->node->precision == rocfft_precision_single)
-            rocfft_transpose_outofplace_template<float2, 64, 16>(
+            rocfft_transpose_outofplace_template<cmplx_float, cmplx_float, cmplx_float, 64, 16>(
                 m,
                 n,
-                (const float2*)data->bufIn[0],
-                (float2*)data->bufOut[0],
+                (const cmplx_float*)data->bufIn[0],
+                (cmplx_float*)data->bufOut[0],
                 data->node->twiddles_large,
                 count,
                 data->node->length.size(),
@@ -880,11 +519,11 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p)
                 scheme,
                 rocfft_stream);
         else
-            rocfft_transpose_outofplace_template<double2, 32, 32>(
+            rocfft_transpose_outofplace_template<cmplx_double, cmplx_double, cmplx_double, 32, 32>(
                 m,
                 n,
-                (const double2*)data->bufIn[0],
-                (double2*)data->bufOut[0],
+                (const cmplx_double*)data->bufIn[0],
+                (cmplx_double*)data->bufOut[0], 
                 data->node->twiddles_large,
                 count,
                 data->node->length.size(),
@@ -897,16 +536,76 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p)
                 rocfft_stream);
     }
     else if(data->node->inArrayType == rocfft_array_type_complex_planar
+            && data->node->outArrayType == rocfft_array_type_complex_interleaved)
+    {
+        if(data->node->precision == rocfft_precision_single)
+        {
+            cmplx_float_planar in_planar;
+            in_planar.R = (real_type_t<float2>*)data->bufIn[0];
+            in_planar.I = (real_type_t<float2>*)data->bufIn[1];
+            rocfft_transpose_outofplace_template<cmplx_float,
+                                                 cmplx_float_planar,
+                                                 cmplx_float,
+                                                 64,
+                                                 16>(
+                m,
+                n,
+                (const cmplx_float_planar*)(&in_planar),
+                (cmplx_float*)data->bufOut[0],
+                data->node->twiddles_large,
+                count,
+                data->node->length.size(),
+                data->node->devKernArg,
+                data->node->devKernArg + 1 * KERN_ARGS_ARRAY_WIDTH,
+                data->node->devKernArg + 2 * KERN_ARGS_ARRAY_WIDTH,
+                twl,
+                dir,
+                scheme,
+                rocfft_stream);
+        }
+        else
+        {
+            cmplx_double_planar in_planar;
+            in_planar.R = (real_type_t<double2>*)data->bufIn[0];
+            in_planar.I = (real_type_t<double2>*)data->bufIn[1];
+            rocfft_transpose_outofplace_template<cmplx_double,
+                                                 cmplx_double_planar,
+                                                 cmplx_double,
+                                                 32,
+                                                 32>(
+                m,
+                n,
+                (const cmplx_double_planar*)(&in_planar),
+                (double2*)data->bufOut[0],
+                data->node->twiddles_large,
+                count,
+                data->node->length.size(),
+                data->node->devKernArg,
+                data->node->devKernArg + 1 * KERN_ARGS_ARRAY_WIDTH,
+                data->node->devKernArg + 2 * KERN_ARGS_ARRAY_WIDTH,
+                twl,
+                dir,
+                scheme,
+                rocfft_stream);
+        }
+    }
+    else if(data->node->inArrayType == rocfft_array_type_complex_interleaved
             && data->node->outArrayType == rocfft_array_type_complex_planar)
     {
         if(data->node->precision == rocfft_precision_single)
-            rocfft_transpose_outofplace_template<float2, 64, 16>(
+        {
+            cmplx_float_planar out_planar;
+            out_planar.R = (real_type_t<float2>*)data->bufOut[0];
+            out_planar.I = (real_type_t<float2>*)data->bufOut[1];
+            rocfft_transpose_outofplace_template<cmplx_float,
+                                                 cmplx_float,
+                                                 cmplx_float_planar,
+                                                 64,
+                                                 16>(
                 m,
                 n,
-                (const float*)data->bufIn[0],
-                (const float*)data->bufIn[1],
-                (float*)data->bufOut[0],
-                (float*)data->bufOut[1],
+                (const cmplx_float*)data->bufIn[0],
+                (cmplx_float_planar*)(&out_planar),
                 data->node->twiddles_large,
                 count,
                 data->node->length.size(),
@@ -917,14 +616,21 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p)
                 dir,
                 scheme,
                 rocfft_stream);
+        }
         else
-            rocfft_transpose_outofplace_template<double2, 32, 32>(
+        {
+            cmplx_double_planar out_planar;
+            out_planar.R = (real_type_t<double2>*)data->bufOut[0];
+            out_planar.I = (real_type_t<double2>*)data->bufOut[1];
+            rocfft_transpose_outofplace_template<cmplx_double,
+                                                 cmplx_double,
+                                                 cmplx_double_planar,
+                                                 32,
+                                                 32>(
                 m,
                 n,
-                (const double*)data->bufIn[0],
-                (const double*)data->bufIn[1],
-                (double*)data->bufOut[0],
-                (double*)data->bufOut[1],
+                (const cmplx_double*)data->bufIn[0],
+                (cmplx_double_planar*)(&out_planar),
                 data->node->twiddles_large,
                 count,
                 data->node->length.size(),
@@ -935,10 +641,71 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p)
                 dir,
                 scheme,
                 rocfft_stream);
+        }
+    }
+    else if(data->node->inArrayType == rocfft_array_type_complex_planar
+            && data->node->outArrayType == rocfft_array_type_complex_planar)
+    {
+        if(data->node->precision == rocfft_precision_single)
+        {
+            cmplx_float_planar in_planar;
+            in_planar.R = (real_type_t<float2>*)data->bufIn[0];
+            in_planar.I = (real_type_t<float2>*)data->bufIn[1];
+            cmplx_float_planar out_planar;
+            out_planar.R = (real_type_t<float2>*)data->bufOut[0];
+            out_planar.I = (real_type_t<float2>*)data->bufOut[1];
+            rocfft_transpose_outofplace_template<cmplx_float,
+                                                 cmplx_float_planar,
+                                                 cmplx_float_planar,
+                                                 64,
+                                                 16>(
+                m,
+                n,
+                (const cmplx_float_planar*)(&in_planar),
+                (cmplx_float_planar*)(&out_planar),
+                data->node->twiddles_large,
+                count,
+                data->node->length.size(),
+                data->node->devKernArg,
+                data->node->devKernArg + 1 * KERN_ARGS_ARRAY_WIDTH,
+                data->node->devKernArg + 2 * KERN_ARGS_ARRAY_WIDTH,
+                twl,
+                dir,
+                scheme,
+                rocfft_stream);
+        }
+        else
+        {
+            cmplx_double_planar in_planar;
+            in_planar.R = (real_type_t<double2>*)data->bufIn[0];
+            in_planar.I = (real_type_t<double2>*)data->bufIn[1];
+            cmplx_double_planar out_planar;
+            out_planar.R = (real_type_t<double2>*)data->bufOut[0];
+            out_planar.I = (real_type_t<double2>*)data->bufOut[1];
+            rocfft_transpose_outofplace_template<cmplx_double,
+                                                 cmplx_double_planar,
+                                                 cmplx_double_planar,
+                                                 32,
+                                                 32>(
+                m,
+                n,
+                (const cmplx_double_planar*)(&in_planar),
+                (cmplx_double_planar*)(&out_planar),
+                data->node->twiddles_large,
+                count,
+                data->node->length.size(),
+                data->node->devKernArg,
+                data->node->devKernArg + 1 * KERN_ARGS_ARRAY_WIDTH,
+                data->node->devKernArg + 2 * KERN_ARGS_ARRAY_WIDTH,
+                twl,
+                dir,
+                scheme,
+                rocfft_stream);
+        }
     }
     else
     {
-        std::cout << "Interleaved <=> planar is not supported in transpose.\n";
+        std::cout << "in/outArrayType are not supported in transpose.\n";
         assert(0);
     }
     // double2 must use 32 otherwise exceed the shared memory (LDS) size
