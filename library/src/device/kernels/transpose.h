@@ -38,6 +38,8 @@
 template <typename T, size_t DIM_X, size_t DIM_Y, bool WITH_TWL, int TWL, int DIR, bool ALL>
 __device__ void transpose_tile_device(const T*     input,
                                       T*           output,
+                                      size_t iOffset,
+                                      size_t oOffset,
                                       const size_t m,
                                       const size_t n,
                                       size_t       gx,
@@ -57,7 +59,7 @@ __device__ void transpose_tile_device(const T*     input,
 #pragma unroll
         for(int i = 0; i < DIM_X; i += DIM_Y)
         {
-            T tmp = input[tx1 + (ty1 + i) * ld_in];
+            T tmp = input[iOffset +tx1 + (ty1 + i) * ld_in];
             if(WITH_TWL)
             {
                 if(TWL == 2)
@@ -110,7 +112,7 @@ __device__ void transpose_tile_device(const T*     input,
         for(int i = 0; i < DIM_X; i += DIM_Y)
         {
             // reconfigure the threads
-            output[tx1 + (i + ty1) * ld_out] = shared_A[ty1 + i][tx1];
+            output[oOffset + tx1 + (i + ty1) * ld_out] = shared_A[ty1 + i][tx1];
         }
     }
     else
@@ -119,7 +121,7 @@ __device__ void transpose_tile_device(const T*     input,
         {
             if(tx1 < n && (ty1 + i) < m)
             {
-                T tmp = input[tx1 + (ty1 + i) * ld_in];
+                T tmp = input[iOffset +tx1 + (ty1 + i) * ld_in];
                 if(WITH_TWL)
                 {
                     if(TWL == 2)
@@ -174,7 +176,7 @@ __device__ void transpose_tile_device(const T*     input,
             // reconfigure the threads
             if(tx1 < m && (ty1 + i) < n)
             {
-                output[tx1 + (i + ty1) * ld_out] = shared_A[ty1 + i][tx1];
+                output[oOffset + tx1 + (i + ty1) * ld_out] = shared_A[ty1 + i][tx1];
             }
         }
     }
@@ -221,13 +223,17 @@ __global__ void transpose_kernel2(const T* input,
     iOffset += counter_mod * stride_in[2];
     oOffset += counter_mod * stride_out[2];
 
-    input += hipBlockIdx_x * DIM_X + hipBlockIdx_y * DIM_X * ld_in + iOffset;
-    output += hipBlockIdx_x * DIM_X * ld_out + hipBlockIdx_y * DIM_X + oOffset;
+    //input += hipBlockIdx_x * DIM_X + hipBlockIdx_y * DIM_X * ld_in + iOffset;
+    iOffset = hipBlockIdx_x * DIM_X + hipBlockIdx_y * DIM_X * ld_in + iOffset;
+    //output += hipBlockIdx_x * DIM_X * ld_out + hipBlockIdx_y * DIM_X + oOffset;
+    oOffset = hipBlockIdx_x * DIM_X * ld_out + hipBlockIdx_y * DIM_X + oOffset;
 
     if(ALL)
     {
         transpose_tile_device<T, DIM_X, DIM_Y, WITH_TWL, TWL, DIR, ALL>(input,
                                                                         output,
+                                                                        iOffset,
+                                                                        oOffset,
                                                                         DIM_X,
                                                                         DIM_X,
                                                                         hipBlockIdx_x * DIM_X,
@@ -244,6 +250,8 @@ __global__ void transpose_kernel2(const T* input,
         size_t nn = min(n - hipBlockIdx_x * DIM_X, DIM_X); // the corner case along n
         transpose_tile_device<T, DIM_X, DIM_Y, WITH_TWL, TWL, DIR, ALL>(input,
                                                                         output,
+                                                                        iOffset,
+                                                                        oOffset,
                                                                         mm,
                                                                         nn,
                                                                         hipBlockIdx_x * DIM_X,
@@ -287,13 +295,17 @@ __global__ void transpose_kernel2_scheme(const T*     input,
     iOffset += counter_mod * stride_in[3];
     oOffset += counter_mod * stride_out[3];
 
-    input += hipBlockIdx_x * DIM_X + hipBlockIdx_y * DIM_X * ld_in + iOffset;
-    output += hipBlockIdx_x * DIM_X * ld_out + hipBlockIdx_y * DIM_X + oOffset;
+    //input += hipBlockIdx_x * DIM_X + hipBlockIdx_y * DIM_X * ld_in + iOffset;
+    iOffset = hipBlockIdx_x * DIM_X + hipBlockIdx_y * DIM_X * ld_in + iOffset;
+    //output += hipBlockIdx_x * DIM_X * ld_out + hipBlockIdx_y * DIM_X + oOffset;
+    oOffset = hipBlockIdx_x * DIM_X * ld_out + hipBlockIdx_y * DIM_X + oOffset;
 
     if(ALL)
     {
         transpose_tile_device<T, DIM_X, DIM_Y, false, 0, 0, ALL>(input,
                                                                  output,
+                                                                 iOffset,
+                                                                 oOffset,
                                                                  DIM_X,
                                                                  DIM_X,
                                                                  hipBlockIdx_x * DIM_X,
@@ -310,6 +322,8 @@ __global__ void transpose_kernel2_scheme(const T*     input,
         size_t nn = min(n - hipBlockIdx_x * DIM_X, DIM_X); // the corner case along n
         transpose_tile_device<T, DIM_X, DIM_Y, false, 0, 0, ALL>(input,
                                                                  output,
+                                                                 iOffset,
+                                                                 oOffset,
                                                                  mm,
                                                                  nn,
                                                                  hipBlockIdx_x * DIM_X,
