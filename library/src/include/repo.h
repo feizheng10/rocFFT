@@ -34,7 +34,7 @@ class Repo
     // planUnique has unique rocfft_plan_t and ExecPlan, and a reference counter
     std::map<rocfft_plan_t, std::pair<ExecPlan, int>> planUnique;
     std::map<rocfft_plan, ExecPlan>                   execLookup;
-    static std::mutex mtx;
+    static std::mutex                                 mtx;
 
 public:
     Repo(const Repo&) = delete; // delete is a c++11 feature, prohibit copy constructor
