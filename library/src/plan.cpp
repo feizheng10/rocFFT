@@ -534,6 +534,10 @@ rocfft_status rocfft_plan_destroy(rocfft_plan plan)
 {
     log_trace(__func__, "plan", plan);
 
+    // Remove itself from Repo first, and then delete itself
+    Repo& repo = Repo::GetRepo();
+    repo.DeletePlan(plan);
+
     if(plan != nullptr)
         delete plan;
 
