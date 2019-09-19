@@ -126,7 +126,8 @@ struct rocfft_plan_t
         const rocfft_plan_t& a = *this;
 
         assert(sizeof(rocfft_plan_t) % 8 == 0);
-        // The below memcmp() only works with 8 bytes alignment.
+        // The below memcmp() works only with 8 bytes alignment,
+        // and also potentially depends on implementation of std::array.
         // The better way should be comparison with each attribute.
         return (memcmp(&a, &b, sizeof(rocfft_plan_t)) < 0 ? true : false);
     }
