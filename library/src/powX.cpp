@@ -238,13 +238,21 @@ void TransformPowX(const ExecPlan&       execPlan,
             break;
         case OB_USER_OUT:
             data.bufIn[0] = out_buffer[0];
-            if(data.node->outArrayType == rocfft_array_type_complex_planar)
+            if(data.node->inArrayType == rocfft_array_type_complex_planar)
             {
                 data.bufIn[1] = out_buffer[1];
             }
             break;
         case OB_TEMP:
             data.bufIn[0] = info->workBuffer;
+            if(data.node->inArrayType == rocfft_array_type_complex_planar)
+            {
+                // assume planar using the same extra size of memory as
+                // interleaved format, and we just need to split it for
+                // planar.
+                data.bufIn[1]
+                    = (void*)((char*)info->workBuffer + execPlan.workBufSize * inBytes / 2);
+            }
             break;
         case OB_TEMP_CMPLX_FOR_REAL:
             data.bufIn[0] = (void*)((char*)info->workBuffer + execPlan.tmpWorkBufSize * inBytes);
@@ -281,6 +289,14 @@ void TransformPowX(const ExecPlan&       execPlan,
             break;
         case OB_TEMP:
             data.bufOut[0] = info->workBuffer;
+            if(data.node->outArrayType == rocfft_array_type_complex_planar)
+            {
+                // assume planar using the same extra size of memory as
+                // interleaved format, and we just need to split it for
+                // planar.
+                data.bufOut[1]
+                    = (void*)((char*)info->workBuffer + execPlan.workBufSize * inBytes / 2);
+            }
             break;
         case OB_TEMP_CMPLX_FOR_REAL:
             data.bufOut[0] = (void*)((char*)info->workBuffer + execPlan.tmpWorkBufSize * inBytes);
@@ -363,6 +379,13 @@ void TransformPowX(const ExecPlan&       execPlan,
         }
 
 #ifdef TMP_DEBUG
+        hipError_t err = hipPeekAtLastError();
+        if(err != hipSuccess)
+        {
+            std::cout << "Error: " << hipGetErrorName(err) << ", " << hipGetErrorString(err)
+                      << std::endl;
+            exit(-1);
+        }
         hipDeviceSynchronize();
         std::cout << "executed kernel: " << i << std::endl;
         hipMemcpy(dbg_out, data.bufOut[0], out_size_bytes, hipMemcpyDeviceToHost);

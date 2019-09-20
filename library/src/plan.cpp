@@ -1024,7 +1024,7 @@ void TreeNode::Build1DBluestein()
     childNodes.push_back(resmulPlan);
 }
 
-void Build1D_Compute_divLengthPow2() { }
+void Build1D_Compute_divLengthPow2() {}
 
 void TreeNode::Build1DCS_L1D_TRTRT(const size_t divLength0, const size_t divLength1)
 {
@@ -1120,6 +1120,11 @@ void TreeNode::Build1DCS_L1D_TRTRT(const size_t divLength0, const size_t divLeng
 
 void TreeNode::Build1DCS_L1D_CC(const size_t divLength0, const size_t divLength1)
 {
+    //  Note:
+    //  The kernel CS_KERNEL_STOCKHAM_BLOCK_CC and CS_KERNEL_STOCKHAM_BLOCK_RC
+    //  are only enabled for outplace for now. Check more details in generator.file.cpp,
+    //  and in generated kernel_lunch_single_large.cpp.h
+
     // first plan, column-to-column
     TreeNode* col2colPlan = TreeNode::CreateNode(this);
 
@@ -2935,7 +2940,8 @@ void TreeNode::ReviseLeafsArrayType(std::vector<TreeNode*>& seq)
     //   - keep the orignal logic for 'I->I'
     //   - For 'P->I', make the 1st leaf node to 'P->I' only
     //   - For 'I->P', make the last leaf node to 'I->P' only
-    // We could change the schedule after when tunning performance
+    // We could change the schedule after when tunning performance,
+    // i.e. force all leaf nodes 'P->P'
 
     if((inArrayType == rocfft_array_type_complex_interleaved
         && outArrayType == rocfft_array_type_complex_interleaved)
