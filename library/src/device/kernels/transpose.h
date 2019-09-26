@@ -123,12 +123,12 @@ struct Handler
 template <>
 struct Handler<cmplx_float>
 {
-    static inline float2 read(cmplx_float const* in, size_t idx)
+    static __host__ __device__ inline float2 read(cmplx_float const* in, size_t idx)
     {
         return in[idx];
     }
 
-    static inline void write(cmplx_float* out, size_t idx, float2 v)
+    static __host__ __device__ inline void write(cmplx_float* out, size_t idx, float2 v)
     {
         out[idx] = v;
     }
@@ -137,12 +137,12 @@ struct Handler<cmplx_float>
 template <>
 struct Handler<cmplx_double>
 {
-    static inline double2 read(cmplx_double const* in, size_t idx)
+    static __host__ __device__ inline double2 read(cmplx_double const* in, size_t idx)
     {
         return in[idx];
     }
 
-    static inline void write(cmplx_double* out, size_t idx, double2 v)
+    static __host__ __device__ inline void write(cmplx_double* out, size_t idx, double2 v)
     {
         out[idx] = v;
     }
@@ -151,12 +151,12 @@ struct Handler<cmplx_double>
 template <>
 struct Handler<cmplx_float_planar>
 {
-    static inline float2 read(cmplx_float_planar const* in, size_t idx)
+    static __host__ __device__ inline float2 read(cmplx_float_planar const* in, size_t idx)
     {
         return float2(in->R[idx], in->I[idx]);
     }
 
-    static inline void write(cmplx_float_planar* out, size_t idx, float2 v)
+    static __host__ __device__ inline void write(cmplx_float_planar* out, size_t idx, float2 v)
     {
         out->R[idx] = v.x;
         out->I[idx] = v.y;
@@ -166,12 +166,12 @@ struct Handler<cmplx_float_planar>
 template <>
 struct Handler<cmplx_double_planar>
 {
-    static inline double2 read(cmplx_double_planar const* in, size_t idx)
+    static __host__ __device__ inline double2 read(cmplx_double_planar const* in, size_t idx)
     {
         return double2(in->R[idx], in->I[idx]);
     }
 
-    static inline void write(cmplx_double_planar* out, size_t idx, double2 v)
+    static __host__ __device__ inline void write(cmplx_double_planar* out, size_t idx, double2 v)
     {
         out->R[idx] = v.x;
         out->I[idx] = v.y;
