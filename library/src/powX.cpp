@@ -45,6 +45,8 @@
 //#define TMP_DEBUG
 #ifdef TMP_DEBUG
 #include "rocfft_hip.h"
+#include <fstream>
+#include <sstream>
 #endif
 
 std::atomic<bool> fn_checked(false);
@@ -314,23 +316,68 @@ void TransformPowX(const ExecPlan&       execPlan,
         data.gridParam = execPlan.gridParam[i];
 
 #ifdef TMP_DEBUG
-        size_t in_size = data.node->iDist * data.node->batch;
-        // FIXME: real data? double precision
-        size_t in_size_bytes = in_size * 2 * sizeof(float);
+        //TODO:
+        // - move the below into DeviceCallIn
+        // - fix it for real data
+
+        std::cout << "--- --- scheme " << PrintScheme(data.node->scheme) << std::endl;
+
+        const size_t in_size = data.node->iDist * data.node->batch;
+        size_t       base_type_size
+            = (data.node->precision == rocfft_precision_double) ? sizeof(double) : sizeof(float);
+        base_type_size *= 2;
+
+        size_t in_size_bytes = in_size * base_type_size;
         void*  dbg_in        = malloc(in_size_bytes);
         hipDeviceSynchronize();
-        hipMemcpy(dbg_in, data.bufIn[0], in_size_bytes, hipMemcpyDeviceToHost);
+        std::stringstream ss;
+        std::ofstream     realPart, imagPart;
 
-        size_t out_size = data.node->oDist * data.node->batch;
-        // FIXME: real data? double precision
-        size_t out_size_bytes = out_size * 2 * sizeof(float);
-        void*  dbg_out        = malloc(out_size_bytes);
-        memset(dbg_out, 0x40, out_size_bytes);
-        if(data.node->placement != rocfft_placement_inplace)
+        ss.str("");
+        ss << "kernel_" << i << "_input_real.bin";
+        realPart.open(ss.str().c_str(), std::ios::out | std::ios::binary);
+        ss.str("");
+        ss << "kernel_" << i << "_input_imag.bin";
+        imagPart.open(ss.str().c_str(), std::ios::out | std::ios::binary);
+
+        if(data.node->inArrayType == rocfft_array_type_complex_planar
+           || data.node->inArrayType == rocfft_array_type_hermitian_planar)
         {
-            hipDeviceSynchronize();
-            hipMemcpy(data.bufOut[0], dbg_out, out_size_bytes, hipMemcpyHostToDevice);
+            hipMemcpy(dbg_in, data.bufIn[0], in_size_bytes / 2, hipMemcpyDeviceToHost);
+            hipMemcpy((void*)((char*)dbg_in + in_size_bytes / 2),
+                      data.bufIn[1],
+                      in_size_bytes / 2,
+                      hipMemcpyDeviceToHost);
+
+            realPart.write((char*)dbg_in, in_size_bytes / 2);
+            imagPart.write((char*)dbg_in + in_size_bytes / 2, in_size_bytes / 2);
         }
+        else
+        {
+            hipMemcpy(dbg_in, data.bufIn[0], in_size_bytes, hipMemcpyDeviceToHost);
+
+            for(size_t ii = 0; ii < in_size_bytes; ii += base_type_size)
+            {
+                realPart.write((char*)dbg_in + ii, base_type_size / 2);
+                imagPart.write((char*)dbg_in + ii + base_type_size / 2, base_type_size / 2);
+            }
+        }
+        realPart.close();
+        imagPart.close();
+
+        const size_t out_size       = data.node->oDist * data.node->batch;
+        const size_t out_size_bytes = out_size * base_type_size;
+        void*        dbg_out        = malloc(out_size_bytes);
+
+        //std::cout << "data.node->iDist " << data.node->iDist << ", data.node->batch " << data.node->batch << std::endl;
+        //std::cout << "in_size " << in_size << ", out_size " << out_size << std::endl;
+        //std::cout << "in_size_bytes " << in_size_bytes << ", out_size_bytes " << out_size_bytes << std::endl;
+        // memset(dbg_out, 0x40, out_size_bytes);
+        // if(data.node->placement != rocfft_placement_inplace)
+        // {
+        //     hipDeviceSynchronize();
+        //     hipMemcpy(data.bufOut[0], dbg_out, out_size_bytes, hipMemcpyHostToDevice);
+        // }
         std::cout << "attempting kernel: " << i << std::endl;
 #endif
 
@@ -388,23 +435,54 @@ void TransformPowX(const ExecPlan&       execPlan,
         }
         hipDeviceSynchronize();
         std::cout << "executed kernel: " << i << std::endl;
-        hipMemcpy(dbg_out, data.bufOut[0], out_size_bytes, hipMemcpyDeviceToHost);
+
+        ss.str("");
+        ss << "kernel_" << i << "_output_real.bin";
+        realPart.open(ss.str().c_str(), std::ios::out | std::ios::binary);
+        ss.str("");
+        ss << "kernel_" << i << "_output_imag.bin";
+        imagPart.open(ss.str().c_str(), std::ios::out | std::ios::binary);
+
+        if(data.node->outArrayType == rocfft_array_type_complex_planar
+           || data.node->outArrayType == rocfft_array_type_hermitian_planar)
+        {
+            hipMemcpy(dbg_out, data.bufOut[0], out_size_bytes / 2, hipMemcpyDeviceToHost);
+            hipMemcpy((void*)((char*)dbg_out + out_size_bytes / 2),
+                      data.bufOut[1],
+                      out_size_bytes / 2,
+                      hipMemcpyDeviceToHost);
+
+            realPart.write((char*)dbg_out, out_size_bytes / 2);
+            imagPart.write((char*)dbg_out + out_size_bytes / 2, out_size_bytes / 2);
+        }
+        else
+        {
+            hipMemcpy(dbg_out, data.bufOut[0], out_size_bytes, hipMemcpyDeviceToHost);
+
+            for(size_t ii = 0; ii < out_size_bytes; ii += base_type_size)
+            {
+                realPart.write((char*)dbg_out + ii, base_type_size / 2);
+                imagPart.write((char*)dbg_out + ii + base_type_size / 2, base_type_size / 2);
+            }
+        }
+
+        realPart.close();
+        imagPart.close();
+
         std::cout << "copied from device\n";
 
-        float2* f_in  = (float2*)dbg_in;
-        float2* f_out = (float2*)dbg_out;
         // temporary print out the kernel output
-        std::cout << "input:" << std::endl;
-        for(size_t i = 0; i < data.node->iDist * data.node->batch; i++)
-        {
-            std::cout << f_in[i].x << " " << f_in[i].y << "\n";
-        }
-        std::cout << "output:" << std::endl;
-        for(size_t i = 0; i < data.node->oDist * data.node->batch; i++)
-        {
-            std::cout << f_out[i].x << " " << f_out[i].y << "\n";
-        }
-        std::cout << "\n---------------------------------------------\n";
+        // std::cout << "input:" << std::endl;
+        // for(size_t i = 0; i < data.node->iDist * data.node->batch; i++)
+        // {
+        //     std::cout << f_in[i].x << " " << f_in[i].y << "\n";
+        // }
+        // std::cout << "output:" << std::endl;
+        // for(size_t i = 0; i < data.node->oDist * data.node->batch; i++)
+        // {
+        //     std::cout << f_out[i].x << " " << f_out[i].y << "\n";
+        // }
+        // std::cout << "\n---------------------------------------------\n";
         free(dbg_out);
         free(dbg_in);
 #endif
