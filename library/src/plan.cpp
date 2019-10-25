@@ -2935,13 +2935,13 @@ void TreeNode::TraverseTreeCollectLeafsLogicA(std::vector<TreeNode*>& seq,
 // Revise leaf nodes inArrayType and outArrayType to work with planar format
 void TreeNode::ReviseLeafsArrayType(std::vector<TreeNode*>& seq)
 {
-    // Let's use 'I->I', 'I->P', 'P->I', 'P->P' to denote the regular cases we need support.
+    // Let's use 'I->I', 'I->P', 'P->I', 'P->P' to denote the cases we need support.
     // To support planar format, one of the simple ways is:
     //   - keep the orignal logic for 'I->I'
     //   - For 'P->I', make the 1st leaf node to 'P->I' only
     //   - For 'I->P', make the last leaf node to 'I->P' only
     // We could change the schedule after when tunning performance,
-    // i.e. force all leaf nodes 'P->P'
+    // i.e. force all leaf nodes 'P->P' if all nodes support it.
 
     if((inArrayType == rocfft_array_type_complex_interleaved
         && outArrayType == rocfft_array_type_complex_interleaved)
@@ -2956,8 +2956,16 @@ void TreeNode::ReviseLeafsArrayType(std::vector<TreeNode*>& seq)
     if(inArrayType == rocfft_array_type_complex_planar
        || inArrayType == rocfft_array_type_hermitian_planar)
     {
-        // change the 1st leaf node to 'planar -> interleaved'
-        seq.front()->inArrayType = rocfft_array_type_complex_planar;
+        if (seq.front()->scheme != CS_KERNEL_CHIRP)
+        {
+            // change the 1st leaf node to 'planar -> interleaved'
+            seq.front()->inArrayType = rocfft_array_type_complex_planar;
+        }
+        else // bluestein is different, we need to change the input of the 2nd node only.
+        {
+            if (seq.size() > 2 && seq.at(1)->scheme == CS_KERNEL_PAD_MUL)
+                seq.at(1)->inArrayType = rocfft_array_type_complex_planar;
+        }
     }
 
     if(outArrayType == rocfft_array_type_complex_planar
