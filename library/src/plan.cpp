@@ -2554,8 +2554,12 @@ void TreeNode::assign_buffers_CS_RC(TraverseState&   state,
                                     OperatingBuffer& obOutBuf)
 {
     childNodes[0]->SetInputBuffer(state);
+    childNodes[0]->obOut = obIn;
     childNodes[0]->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
-    childNodes[0]->obOut = flipOut;
+    if(childNodes[0]->childNodes.size() != 0 && placement == rocfft_placement_inplace)
+    {
+        childNodes[0]->obOut = flipIn;
+    }
 
     childNodes[1]->SetInputBuffer(state);
     childNodes[1]->obOut = obOutBuf;
