@@ -24,8 +24,10 @@
 #include <algorithm>
 #include <complex>
 #include <iostream>
+#include <mutex>
 #include <numeric>
 #include <omp.h>
+#include <random>
 #include <tuple>
 #include <vector>
 
@@ -865,17 +867,22 @@ inline void copy_buffers(const std::vector<std::vector<char, Tallocator1>>& inpu
 // length idist between batches to a buffer with strides ostride and length odist between
 // batches.  Both buffers are of complex type.
 template <typename Tcomplex, typename Tint1, typename Tint2, typename Tint3>
-inline std::pair<double, double> LinfL2diff_1to1_complex(const Tcomplex* input,
-                                                         const Tcomplex* output,
-                                                         const Tint1&    whole_length,
-                                                         const size_t    nbatch,
-                                                         const Tint2&    istride,
-                                                         const size_t    idist,
-                                                         const Tint3&    ostride,
-                                                         const size_t    odist)
+inline std::pair<double, double>
+    LinfL2diff_1to1_complex(const Tcomplex*                         input,
+                            const Tcomplex*                         output,
+                            const Tint1&                            whole_length,
+                            const size_t                            nbatch,
+                            const Tint2&                            istride,
+                            const size_t                            idist,
+                            const Tint3&                            ostride,
+                            const size_t                            odist,
+                            std::vector<std::pair<size_t, size_t>>& linf_failures,
+                            const double                            linf_cutoff)
 {
     double linf = 0.0;
     double l2   = 0.0;
+
+    std::mutex linf_failure_lock;
 
     bool   idx_equals_odx = istride == ostride && idist == odist;
     size_t idx_base       = 0;
@@ -897,10 +904,24 @@ inline std::pair<double, double> LinfL2diff_1to1_complex(const Tcomplex* input,
                 const int    odx   = idx_equals_odx ? idx : compute_index(index, ostride, odx_base);
                 const double rdiff = std::abs(output[odx].real() - input[idx].real());
                 cur_linf           = std::max(rdiff, cur_linf);
+                if(cur_linf > linf_cutoff)
+                {
+                    std::pair<size_t, size_t> fval(b, idx);
+                    linf_failure_lock.lock();
+                    linf_failures.push_back(fval);
+                    linf_failure_lock.unlock();
+                }
                 cur_l2 += rdiff * rdiff;
 
                 const double idiff = std::abs(output[odx].imag() - input[idx].imag());
                 cur_linf           = std::max(idiff, cur_linf);
+                if(cur_linf > linf_cutoff)
+                {
+                    std::pair<size_t, size_t> fval(b, idx);
+                    linf_failure_lock.lock();
+                    linf_failures.push_back(fval);
+                    linf_failure_lock.unlock();
+                }
                 cur_l2 += idiff * idiff;
 
             } while(increment_colmajor(index, length));
@@ -915,17 +936,23 @@ inline std::pair<double, double> LinfL2diff_1to1_complex(const Tcomplex* input,
 // length idist between batches to a buffer with strides ostride and length odist between
 // batches.  Both buffers are of real type.
 template <typename Tfloat, typename Tint1, typename Tint2, typename Tint3>
-inline std::pair<double, double> LinfL2diff_1to1_real(const Tfloat* input,
-                                                      const Tfloat* output,
-                                                      const Tint1&  whole_length,
-                                                      const size_t  nbatch,
-                                                      const Tint2&  istride,
-                                                      const size_t  idist,
-                                                      const Tint3&  ostride,
-                                                      const size_t  odist)
+inline std::pair<double, double>
+    LinfL2diff_1to1_real(const Tfloat*                           input,
+                         const Tfloat*                           output,
+                         const Tint1&                            whole_length,
+                         const size_t                            nbatch,
+                         const Tint2&                            istride,
+                         const size_t                            idist,
+                         const Tint3&                            ostride,
+                         const size_t                            odist,
+                         std::vector<std::pair<size_t, size_t>>& linf_failures,
+                         const double                            linf_cutoff)
 {
-    double linf           = 0.0;
-    double l2             = 0.0;
+    double linf = 0.0;
+    double l2   = 0.0;
+
+    std::mutex linf_failure_lock;
+
     bool   idx_equals_odx = istride == ostride && idist == odist;
     size_t idx_base       = 0;
     size_t odx_base       = 0;
@@ -945,6 +972,13 @@ inline std::pair<double, double> LinfL2diff_1to1_real(const Tfloat* input,
                 const int    odx  = idx_equals_odx ? idx : compute_index(index, ostride, odx_base);
                 const double diff = std::abs(output[odx] - input[idx]);
                 cur_linf          = std::max(diff, cur_linf);
+                if(cur_linf > linf_cutoff)
+                {
+                    std::pair<size_t, size_t> fval(b, idx);
+                    linf_failure_lock.lock();
+                    linf_failures.push_back(fval);
+                    linf_failure_lock.unlock();
+                }
                 cur_l2 += diff * diff;
 
             } while(increment_rowmajor(index, length));
@@ -958,19 +992,25 @@ inline std::pair<double, double> LinfL2diff_1to1_real(const Tfloat* input,
 // Compute the L-infinity and L-2 distance between two buffers with strides istride and
 // length idist between batches to a buffer with strides ostride and length odist between
 // batches.  input is complex-interleaved, output is complex-planar.
-template <typename Tval, typename T1, typename T2, typename T3>
-inline std::pair<double, double> LinfL2diff_1to2(const std::complex<Tval>* input,
-                                                 const Tval*               output0,
-                                                 const Tval*               output1,
-                                                 const T1&                 whole_length,
-                                                 const size_t              nbatch,
-                                                 const T2&                 istride,
-                                                 const size_t              idist,
-                                                 const T3&                 ostride,
-                                                 const size_t              odist)
+template <typename Tval, typename Tint1, typename T2, typename T3>
+inline std::pair<double, double>
+    LinfL2diff_1to2(const std::complex<Tval>*               input,
+                    const Tval*                             output0,
+                    const Tval*                             output1,
+                    const Tint1&                            whole_length,
+                    const size_t                            nbatch,
+                    const T2&                               istride,
+                    const size_t                            idist,
+                    const T3&                               ostride,
+                    const size_t                            odist,
+                    std::vector<std::pair<size_t, size_t>>& linf_failures,
+                    const double                            linf_cutoff)
 {
-    double linf           = 0.0;
-    double l2             = 0.0;
+    double linf = 0.0;
+    double l2   = 0.0;
+
+    std::mutex linf_failure_lock;
+
     bool   idx_equals_odx = istride == ostride && idist == odist;
     size_t idx_base       = 0;
     size_t odx_base       = 0;
@@ -990,10 +1030,24 @@ inline std::pair<double, double> LinfL2diff_1to2(const std::complex<Tval>* input
                 const int    odx   = idx_equals_odx ? idx : compute_index(index, ostride, odx_base);
                 const double rdiff = std::abs(output0[odx] - input[idx].real());
                 cur_linf           = std::max(rdiff, cur_linf);
+                if(cur_linf > linf_cutoff)
+                {
+                    std::pair<size_t, size_t> fval(b, idx);
+                    linf_failure_lock.lock();
+                    linf_failures.push_back(fval);
+                    linf_failure_lock.unlock();
+                }
                 cur_l2 += rdiff * rdiff;
 
                 const double idiff = std::abs(output1[odx] - input[idx].imag());
                 cur_linf           = std::max(idiff, cur_linf);
+                if(cur_linf > linf_cutoff)
+                {
+                    std::pair<size_t, size_t> fval(b, idx);
+                    linf_failure_lock.lock();
+                    linf_failures.push_back(fval);
+                    linf_failure_lock.unlock();
+                }
                 cur_l2 += idiff * idiff;
 
             } while(increment_rowmajor(index, length));
@@ -1022,9 +1076,12 @@ inline std::pair<double, double>
                const size_t                                       idist,
                const rocfft_array_type                            otype,
                const Tint3&                                       ostride,
-               const size_t                                       odist)
+               const size_t                                       odist,
+               std::vector<std::pair<size_t, size_t>>&            linf_failures,
+               const double                                       linf_cutoff)
 {
     auto LinfL2 = std::make_pair<double, double>(0.0, 0.0);
+
     if(itype == otype)
     {
         switch(itype)
@@ -1042,7 +1099,9 @@ inline std::pair<double, double>
                     istride,
                     idist,
                     ostride,
-                    odist);
+                    odist,
+                    linf_failures,
+                    linf_cutoff);
                 break;
             case rocfft_precision_double:
                 LinfL2 = LinfL2diff_1to1_complex(
@@ -1053,7 +1112,9 @@ inline std::pair<double, double>
                     istride,
                     idist,
                     ostride,
-                    odist);
+                    odist,
+                    linf_failures,
+                    linf_cutoff);
                 break;
             }
             break;
@@ -1073,7 +1134,9 @@ inline std::pair<double, double>
                                                istride,
                                                idist,
                                                ostride,
-                                               odist);
+                                               odist,
+                                               linf_failures,
+                                               linf_cutoff);
                     break;
                 case rocfft_precision_double:
                     val = LinfL2diff_1to1_real(reinterpret_cast<const double*>(input[idx].data()),
@@ -1083,7 +1146,9 @@ inline std::pair<double, double>
                                                istride,
                                                idist,
                                                ostride,
-                                               odist);
+                                               odist,
+                                               linf_failures,
+                                               linf_cutoff);
                     break;
                 }
                 LinfL2.first = std::max(val.first, LinfL2.first);
@@ -1111,7 +1176,9 @@ inline std::pair<double, double>
                                      istride,
                                      idist,
                                      ostride,
-                                     odist);
+                                     odist,
+                                     linf_failures,
+                                     linf_cutoff);
             break;
         case rocfft_precision_double:
             LinfL2 = LinfL2diff_1to2(reinterpret_cast<const std::complex<double>*>(input[0].data()),
@@ -1122,7 +1189,9 @@ inline std::pair<double, double>
                                      istride,
                                      idist,
                                      ostride,
-                                     odist);
+                                     odist,
+                                     linf_failures,
+                                     linf_cutoff);
             break;
         }
     }
@@ -1142,7 +1211,9 @@ inline std::pair<double, double>
                                      ostride,
                                      odist,
                                      istride,
-                                     idist);
+                                     idist,
+                                     linf_failures,
+                                     linf_cutoff);
             break;
         case rocfft_precision_double:
             LinfL2
@@ -1154,7 +1225,9 @@ inline std::pair<double, double>
                                   ostride,
                                   odist,
                                   istride,
-                                  idist);
+                                  idist,
+                                  linf_failures,
+                                  linf_cutoff);
             break;
         }
     }
@@ -1183,7 +1256,9 @@ inline std::pair<double, double>
                const size_t                                       idist,
                const rocfft_array_type                            otype,
                const std::vector<Tint3>&                          ostride,
-               const size_t                                       odist)
+               const size_t                                       odist,
+               std::vector<std::pair<size_t, size_t>>&            linf_failures,
+               const double                                       linf_cutoff)
 {
     switch(length.size())
     {
@@ -1198,7 +1273,9 @@ inline std::pair<double, double>
                           idist,
                           otype,
                           ostride[0],
-                          odist);
+                          odist,
+                          linf_failures,
+                          linf_cutoff);
     case 2:
         return LinfL2diff(input,
                           output,
@@ -1210,7 +1287,9 @@ inline std::pair<double, double>
                           idist,
                           otype,
                           std::make_tuple(ostride[0], ostride[1]),
-                          odist);
+                          odist,
+                          linf_failures,
+                          linf_cutoff);
     case 3:
         return LinfL2diff(input,
                           output,
@@ -1222,7 +1301,9 @@ inline std::pair<double, double>
                           idist,
                           otype,
                           std::make_tuple(ostride[0], ostride[1], ostride[2]),
-                          odist);
+                          odist,
+                          linf_failures,
+                          linf_cutoff);
     default:
         abort();
     }
@@ -1648,76 +1729,129 @@ inline void impose_hermitian_symmetry(std::vector<std::vector<char, Tallocator>>
 // into the input array of floats/doubles or complex floats/doubles, which is stored in a
 // vector of chars (or two vectors in the case of planar format).
 // lengths are the memory lengths (ie not the transform parameters)
-template <typename Tfloat, typename Tallocator, typename Tsize>
+template <typename Tfloat, typename Tallocator, typename Tint1>
 inline void set_input(std::vector<std::vector<char, Tallocator>>& input,
                       const rocfft_array_type                     itype,
-                      const std::vector<Tsize>&                   length,
-                      const std::vector<Tsize>&                   istride,
-                      const Tsize                                 idist,
-                      const Tsize                                 nbatch)
+                      const Tint1&                                whole_length,
+                      const Tint1&                                istride,
+                      const size_t                                idist,
+                      const size_t                                nbatch)
 {
     switch(itype)
     {
     case rocfft_array_type_complex_interleaved:
     case rocfft_array_type_hermitian_interleaved:
     {
-        auto  idata  = (std::complex<Tfloat>*)input[0].data();
-        Tsize i_base = 0;
+        auto   idata      = (std::complex<Tfloat>*)input[0].data();
+        size_t i_base     = 0;
+        auto   partitions = partition_rowmajor(whole_length);
         for(auto b = 0; b < nbatch; b++, i_base += idist)
         {
-            std::vector<int> index(length.size());
-            do
+#pragma omp parallel for num_threads(partitions.size())
+            for(size_t part = 0; part < partitions.size(); ++part)
             {
-                const int i
-                    = std::inner_product(index.begin(), index.end(), istride.begin(), i_base);
-                const std::complex<Tfloat> val((Tfloat)rand() / (Tfloat)RAND_MAX,
-                                               (Tfloat)rand() / (Tfloat)RAND_MAX);
-                idata[i] = val;
-            } while(increment_rowmajor(index, length));
+                auto         index  = partitions[part].first;
+                const auto   length = partitions[part].second;
+                std::mt19937 gen(compute_index(index, istride, i_base));
+                do
+                {
+                    const int                  i = compute_index(index, istride, i_base);
+                    const std::complex<Tfloat> val((Tfloat)gen() / (Tfloat)gen.max(),
+                                                   (Tfloat)gen() / (Tfloat)gen.max());
+                    idata[i] = val;
+                } while(increment_rowmajor(index, length));
+            }
         }
         break;
     }
     case rocfft_array_type_complex_planar:
     case rocfft_array_type_hermitian_planar:
     {
-        auto   ireal  = (Tfloat*)input[0].data();
-        auto   iimag  = (Tfloat*)input[1].data();
-        size_t i_base = 0;
+        auto   ireal      = (Tfloat*)input[0].data();
+        auto   iimag      = (Tfloat*)input[1].data();
+        size_t i_base     = 0;
+        auto   partitions = partition_rowmajor(whole_length);
         for(auto b = 0; b < nbatch; b++, i_base += idist)
         {
-            std::vector<int> index(length.size());
-            do
+#pragma omp parallel for num_threads(partitions.size())
+            for(size_t part = 0; part < partitions.size(); ++part)
             {
-                const int i
-                    = std::inner_product(index.begin(), index.end(), istride.begin(), i_base);
-                const std::complex<Tfloat> val((Tfloat)rand() / (Tfloat)RAND_MAX,
-                                               (Tfloat)rand() / (Tfloat)RAND_MAX);
-                ireal[i] = val.real();
-                iimag[i] = val.imag();
-            } while(increment_rowmajor(index, length));
+                auto         index  = partitions[part].first;
+                const auto   length = partitions[part].second;
+                std::mt19937 gen(compute_index(index, istride, i_base));
+                do
+                {
+                    const int                  i = compute_index(index, istride, i_base);
+                    const std::complex<Tfloat> val((Tfloat)gen() / (Tfloat)gen.max(),
+                                                   (Tfloat)gen() / (Tfloat)gen.max());
+                    ireal[i] = val.real();
+                    iimag[i] = val.imag();
+                } while(increment_rowmajor(index, length));
+            }
         }
         break;
     }
     case rocfft_array_type_real:
     {
-        auto  idata  = (Tfloat*)input[0].data();
-        Tsize i_base = 0;
+        auto   idata      = (Tfloat*)input[0].data();
+        size_t i_base     = 0;
+        auto   partitions = partition_rowmajor(whole_length);
         for(auto b = 0; b < nbatch; b++, i_base += idist)
         {
-            std::vector<int> index(length.size());
-            do
+#pragma omp parallel for num_threads(partitions.size())
+            for(size_t part = 0; part < partitions.size(); ++part)
             {
-                const int i
-                    = std::inner_product(index.begin(), index.end(), istride.begin(), i_base);
-                const Tfloat val = (Tfloat)rand() / (Tfloat)RAND_MAX;
-                idata[i]         = val;
-            } while(increment_rowmajor(index, length));
+                auto         index  = partitions[part].first;
+                const auto   length = partitions[part].second;
+                std::mt19937 gen(compute_index(index, istride, i_base));
+                do
+                {
+                    const int    i   = compute_index(index, istride, i_base);
+                    const Tfloat val = (Tfloat)gen() / (Tfloat)gen.max();
+                    idata[i]         = val;
+                } while(increment_rowmajor(index, length));
+            }
         }
         break;
     }
     default:
         throw std::runtime_error("Input layout format not yet supported");
         break;
+    }
+}
+
+// unroll set_input for dimension 1, 2, 3
+template <typename Tfloat, typename Tallocator>
+inline void set_input(std::vector<std::vector<char, Tallocator>>& input,
+                      const rocfft_array_type                     itype,
+                      const std::vector<size_t>&                  length,
+                      const std::vector<size_t>&                  istride,
+                      const size_t                                idist,
+                      const size_t                                nbatch)
+{
+    switch(length.size())
+    {
+    case 1:
+        set_input<Tfloat>(input, itype, length[0], istride[0], idist, nbatch);
+        break;
+    case 2:
+        set_input<Tfloat>(input,
+                          itype,
+                          std::make_tuple(length[0], length[1]),
+                          std::make_tuple(istride[0], istride[1]),
+                          idist,
+                          nbatch);
+        break;
+    case 3:
+        set_input<Tfloat>(input,
+                          itype,
+                          std::make_tuple(length[0], length[1], length[2]),
+                          std::make_tuple(istride[0], istride[1], istride[2]),
+                          idist,
+                          nbatch);
+        break;
+    default:
+        abort();
     }
 }
 

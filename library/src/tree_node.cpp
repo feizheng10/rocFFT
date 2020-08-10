@@ -1,4 +1,4 @@
-// Copyright (c) 2016 - present Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2020 - present Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -18,19 +18,29 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-#ifndef REAL_TO_COMPLEX_H
-#define REAL_TO_COMPLEX_H
+#include "tree_node.h"
 
-void real2complex(const void* data, void* back);
-void complex2hermitian(const void* data, void* back);
+// TODO:
+//   - better data structure, and more elements for non pow of 2
+//   - validate corresponding functions existing in function pool or not
+TreeNode::Map1DLength const TreeNode::map1DLengthSingle = {
+    {8192, 64}, // pow of 2
+    {16384, 64},
+    {32768, 128},
+    {65536, 256},
+    {131072, 64},
+    {262144, 64},
+    {6561, 81}, // pow of 3
+    {10000, 100} // mixed
+};
 
-void hermitian2complex(const void* data, void* back);
-void complex2real(const void* data, void* back);
-
-void r2c_1d_post(const void* data, void* back);
-void c2r_1d_pre(const void* data, void* back);
-
-void complex2pair_unpack(const void* data, void* back);
-void pair2complex_pack(const void* data, void* back);
-
-#endif // REAL_TO_COMPLEX_H
+TreeNode::Map1DLength const TreeNode::map1DLengthDouble = {
+    {4096, 64}, // pow of 2
+    {8192, 64},
+    {16384, 64},
+    {32768, 128},
+    {65536, 64},
+    {131072, 64},
+    {6561, 81}, // pow of 3
+    {10000, 100} // mixed
+};

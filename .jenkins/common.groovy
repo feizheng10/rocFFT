@@ -1,7 +1,7 @@
 // This file is for internal AMD use.
 // If you are interested in running your own Jenkins, please raise a github issue for assistance.
 
-def runCompileCommand(platform, project, jobName, boolean debug=false)
+def runCompileCommand(platform, project, jobName, boolean debug=false, boolean buildStatic=false)
 {
     project.paths.construct_build_prefix()
 
@@ -9,6 +9,7 @@ def runCompileCommand(platform, project, jobName, boolean debug=false)
     String clientArgs = '-DBUILD_CLIENTS_SAMPLES=ON -DBUILD_CLIENTS_TESTS=ON -DBUILD_CLIENTS_BENCHMARKS=ON -DBUILD_CLIENTS_SELFTEST=ON -DBUILD_CLIENTS_RIDER=ON'
     String buildTypeArg = debug ? '-DCMAKE_BUILD_TYPE=Debug' : '-DCMAKE_BUILD_TYPE=Release'
     String buildTypeDir = debug ? 'debug' : 'release'
+    String staticArg = buildStatic ? '-DBUILD_SHARED_LIBS=off' : ''
     String hipClangArgs = jobName.contains('hipclang') ? '-DUSE_HIP_CLANG=ON -DHIP_COMPILER=clang' : ''
     String cmake = platform.jenkinsLabel.contains('centos') ? 'cmake3' : 'cmake'
     String sudo = platform.jenkinsLabel.contains('sles') ? 'sudo -E' : ''
@@ -28,27 +29,30 @@ def runCompileCommand(platform, project, jobName, boolean debug=false)
 
                 cd ${project.paths.project_build_prefix}
                 mkdir -p build/${buildTypeDir} && cd build/${buildTypeDir}
-                ${sudo} ${cmake} -DCMAKE_CXX_COMPILER=/opt/rocm/bin/${compiler} ${buildTypeArg} ${clientArgs} ${hipClangArgs} ../..
+                ${sudo} ${cmake} -DCMAKE_CXX_COMPILER=/opt/rocm/bin/${compiler} ${buildTypeArg} ${clientArgs} ${hipClangArgs} ${staticArg} ../..
                 ${sudo} make -j\$(nproc)
             """
     platform.runCommand(this, command)
 }
 
-def runTestCommand (platform, project)
+def runTestCommand (platform, project, boolean debug=false)
 {            
     String sudo = auxiliary.sudo(platform.jenkinsLabel)
+    String testBinaryName = debug ? 'rocfft-test-d' : 'rocfft-test'
+    String directory = debug ? 'debug' : 'release'
 
     def command = """#!/usr/bin/env bash
                 set -x
-                cd ${project.paths.project_build_prefix}/build/release/clients/staging
-                ${sudo} LD_LIBRARY_PATH=/opt/rocm/lib GTEST_LISTENER=NO_PASS_LINE_IN_LOG ./rocfft-test --gtest_color=yes
+                cd ${project.paths.project_build_prefix}/build/${directory}/clients/staging
+                ${sudo} LD_LIBRARY_PATH=/opt/rocm/lib GTEST_LISTENER=NO_PASS_LINE_IN_LOG ./${testBinaryName} --gtest_color=yes
             """
     platform.runCommand(this, command)
 }
 
-def runPackageCommand(platform, project, jobName)
+def runPackageCommand(platform, project, jobName, boolean debug=false)
 {
-    def packageHelper = platform.makePackage(platform.jenkinsLabel,"${project.paths.project_build_prefix}/build/release",true)
+    String directory = debug ? 'debug' : 'release'
+    def packageHelper = platform.makePackage(platform.jenkinsLabel,"${project.paths.project_build_prefix}/build/${directory}",true)
     platform.runCommand(this, packageHelper[0])
     platform.archiveArtifacts(this, packageHelper[1])
 }

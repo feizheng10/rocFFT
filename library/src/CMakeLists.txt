@@ -54,6 +54,7 @@ set( rocfft_source
   twiddles.cpp
   kargs.cpp
   rocfft_ostream.cpp
+  tree_node.cpp
   )
 
 prepend_path( ".." rocfft_headers_public relative_rocfft_headers_public )
@@ -63,9 +64,10 @@ add_library( roc::rocfft ALIAS rocfft )
 target_compile_features( rocfft PRIVATE cxx_static_assert cxx_nullptr
   cxx_auto_type )
 
-if(CMAKE_CXX_COMPILER MATCHES ".*/hcc$" )
-  target_link_libraries( rocfft PRIVATE hip::device )
+if( NOT BUILD_SHARED_LIBS )
+  target_link_libraries( rocfft INTERFACE hip::host )
 endif()
+target_link_libraries(rocfft PRIVATE hip::device)
 
 target_link_libraries( rocfft PRIVATE rocfft-device )
 

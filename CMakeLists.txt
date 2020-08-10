@@ -35,6 +35,9 @@ else( )
     "Install path prefix, prepended onto install directories" )
 endif( )
 
+# Workaround for missing llvm cmake files in /opt/rocm/lib/cmake. Remove when this is fixed
+list( APPEND CMAKE_PREFIX_PATH /opt/rocm/llvm /opt/rocm )
+
 
 # This has to be initialized before the project() command appears
 # Set the default of CMAKE_BUILD_TYPE to be release, unless user
@@ -90,7 +93,7 @@ include( ROCMPackageConfigHelpers )
 include( ROCMInstallSymlinks )
 
 # Using standardized versioning from rocm-cmake
-set ( VERSION_STRING "1.0.5" )
+set ( VERSION_STRING "1.0.6" )
 rocm_setup_version( VERSION ${VERSION_STRING} )
 
 # Append our library helper cmake path and the cmake path for hip (for
