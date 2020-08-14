@@ -83,6 +83,7 @@ enum ComputeScheme
     CS_KERNEL_2D_SINGLE,
 
     CS_3D_STRAIGHT,
+    CS_3D_RTRTRT,
     CS_3D_RTRT,
     CS_3D_RC,
     CS_KERNEL_3D_STOCKHAM_BLOCK_CC,
@@ -239,6 +240,9 @@ public:
     // Main tree builder:
     void RecursiveBuildTree();
 
+    bool use_CS_2D_SINGLE(); // To determine using scheme CS_KERNEL_2D_SINGLE or not
+    bool use_CS_2D_RC(); // To determine using scheme CS_2D_RC or not
+
     // Real-complex and complex-real node builders:
     void build_real();
     void build_real_embed();
@@ -254,12 +258,15 @@ public:
     void build_1DCS_L1D_CC(const size_t divLength0, const size_t divLength1);
     void build_1DCS_L1D_CRT(const size_t divLength0, const size_t divLength1);
 
-    // 2D node builder:
+    // 2D node builders:
     void build_CS_2D_RTRT();
     void build_CS_2D_RC();
 
-    // 3D node builder:
+    // 3D node builders:
+    // 3D 4 node builder, R: 2D FFTs, T: transpose XY_Z, R: row FFTs, T: transpose Z_XY
     void build_CS_3D_RTRT();
+    // 3D 6 node builder, R: row FFTs, T: transpose XY_Z, R: row FFTs, T: transpose XY_Z, R: row FFTs, T: transpose XY_Z
+    void build_CS_3D_RTRTRT();
 
     // State maintained while traversing the tree.
     //
@@ -329,6 +336,10 @@ public:
                               OperatingBuffer& flipIn,
                               OperatingBuffer& flipOut,
                               OperatingBuffer& obOutBuf);
+    void assign_buffers_CS_3D_RTRTRT(TraverseState&   state,
+                                     OperatingBuffer& flipIn,
+                                     OperatingBuffer& flipOut,
+                                     OperatingBuffer& obOutBuf);
 
     // Set placement variable and in/out array types
     void TraverseTreeAssignPlacementsLogicA(rocfft_array_type rootIn, rocfft_array_type rootOut);
@@ -347,6 +358,7 @@ public:
     void assign_params_CS_2D_RTRT();
     void assign_params_CS_2D_RC_STRAIGHT();
     void assign_params_CS_3D_RTRT();
+    void assign_params_CS_3D_RTRTRT();
     void assign_params_CS_3D_RC_STRAIGHT();
 
     // Determine work memory requirements:
