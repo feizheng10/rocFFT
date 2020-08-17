@@ -104,7 +104,8 @@ int main(int argc, char* argv[])
         ("ostride", po::value<std::vector<size_t>>(&ostride)->multitoken(), "Output strides.")
         ("ioffset", po::value<std::vector<size_t>>(&ioffset)->multitoken(), "Input offsets.")
         ("ooffset", po::value<std::vector<size_t>>(&ooffset)->multitoken(), "Output offsets.")
-        ("stat", "Show gpu execution time and gflops with min, mean, median and max of all smaples.");
+        ("stat", "Show gpu execution time and gflops with min, mean, median and max of all smaples.")
+        ("noWarmup,u", "No pre-run.");
     // clang-format on
 
     po::variables_map vm;
@@ -347,13 +348,16 @@ int main(int argc, char* argv[])
     }
 
     // Warm up once:
-    for(int idx = 0; idx < input.size(); ++idx)
+    if(!vm.count("noWarmup"))
     {
-        HIP_V_THROW(
-            hipMemcpy(ibuffer[idx], input[idx].data(), input[idx].size(), hipMemcpyHostToDevice),
-            "hipMemcpy failed");
+        for(int idx = 0; idx < input.size(); ++idx)
+        {
+            HIP_V_THROW(
+                hipMemcpy(ibuffer[idx], input[idx].data(), input[idx].size(), hipMemcpyHostToDevice),
+                "hipMemcpy failed");
+        }
+        rocfft_execute(plan, ibuffer.data(), obuffer.data(), info);
     }
-    rocfft_execute(plan, ibuffer.data(), obuffer.data(), info);
 
     // Run the transform several times and record the execution time:
     std::vector<double> gpu_time(ntrial);
