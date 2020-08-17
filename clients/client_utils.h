@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <complex>
+#include <iomanip>
 #include <iostream>
 #include <mutex>
 #include <numeric>
@@ -2165,6 +2166,84 @@ inline void check_set_iotypes(const rocfft_result_placement place,
     }
 
     check_iotypes(place, transformType, itype, otype);
+}
+
+// Return min, mean, median, max of numbers in a vector
+template <typename T>
+std::tuple<T, T, T, T> m_4(std::vector<T> const& a)
+{
+    std::vector<T> v(a);
+
+    if(v.empty())
+        return std::make_tuple(0, 0, 0, 0);
+
+    auto min_max = std::minmax_element(v.begin(), v.end());
+    auto min     = *(min_max.first);
+    auto max     = *(min_max.second);
+    auto mean    = std::accumulate(v.begin(), v.end(), 0.0) / v.size();
+
+    auto half = v.size() / 2;
+    std::nth_element(v.begin(), v.begin() + half, v.end());
+    auto median = v[half];
+
+    if(v.size() % 2 == 0) // even case
+    {
+        auto max_it = std::max_element(v.begin(), v.begin() + half);
+        median      = (*max_it + median) / 2.0;
+    }
+
+    return std::make_tuple(min, mean, median, max);
+}
+
+// Print execution gpu time and gflops
+template <typename Tsize>
+inline void show_perf(bool                       show_stat,
+                      std::vector<Tsize> const&  length,
+                      Tsize                      nbatch,
+                      rocfft_array_type          itype,
+                      rocfft_array_type          otype,
+                      std::vector<double> const& gpu_time)
+{
+    std::tuple<float, float, float, float> s;
+
+    std::cout << "\nExecution gpu time:";
+    if(!show_stat)
+    {
+        for(const auto& i : gpu_time)
+        {
+            std::cout << " " << i;
+        }
+        std::cout << " ms" << std::endl;
+    }
+    else
+    {
+        s = m_4(gpu_time);
+        std::cout << " min: " << std::setw(11) << std::get<0>(s) << ", mean: " << std::setw(11)
+                  << std::get<1>(s) << ", median " << std::setw(11) << std::get<2>(s)
+                  << ", max: " << std::setw(11) << std::get<3>(s) << " ms" << std::endl;
+    }
+
+    std::cout << "Execution gflops:  ";
+    const double totsize
+        = std::accumulate(length.begin(), length.end(), 1, std::multiplies<Tsize>());
+    const double k
+        = ((itype == rocfft_array_type_real) || (otype == rocfft_array_type_real)) ? 2.5 : 5.0;
+    const double opscount = (double)nbatch * k * totsize * log(totsize) / log(2.0);
+    if(!show_stat)
+    {
+        for(const auto& i : gpu_time)
+        {
+            std::cout << " " << opscount / (1e6 * i);
+        }
+        std::cout << std::endl;
+    }
+    else
+    {
+        std::cout << " min: " << std::setw(11) << opscount / (1e6 * std::get<3>(s))
+                  << ", mean: " << std::setw(11) << opscount / (1e6 * std::get<1>(s)) << ", median "
+                  << std::setw(11) << opscount / (1e6 * std::get<2>(s))
+                  << ", max: " << std::setw(11) << opscount / (1e6 * std::get<0>(s)) << std::endl;
+    }
 }
 
 #endif

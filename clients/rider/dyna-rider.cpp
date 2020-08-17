@@ -258,7 +258,8 @@ int main(int argc, char* argv[])
         ("istride", po::value<std::vector<size_t>>(&istride)->multitoken(), "Input strides.")
         ("ostride", po::value<std::vector<size_t>>(&ostride)->multitoken(), "Output strides.")
         ("ioffset", po::value<std::vector<size_t>>(&ioffset)->multitoken(), "Input offsets.")
-        ("ooffset", po::value<std::vector<size_t>>(&ooffset)->multitoken(), "Output offsets.");
+        ("ooffset", po::value<std::vector<size_t>>(&ooffset)->multitoken(), "Output offsets.")
+        ("stat", "Show gpu execution time and gflops with min, mean, median and max of all smaples.");
     // clang-format on
 
     po::variables_map vm;
@@ -277,6 +278,8 @@ int main(int argc, char* argv[])
         std::cout << opdesc << std::endl;
         return 0;
     }
+
+    const bool show_stat = vm.count("stat") ? true : false;
 
     const rocfft_result_placement place
         = vm.count("notInPlace") ? rocfft_placement_notinplace : rocfft_placement_inplace;
@@ -581,15 +584,9 @@ int main(int argc, char* argv[])
         }
     }
 
-    std::cout << "Execution times in ms:\n";
     for(int idx = 0; idx < time.size(); ++idx)
     {
-        std::cout << "\nExecution gpu time:";
-        for(auto& i : time[idx])
-        {
-            std::cout << " " << i;
-        }
-        std::cout << " ms" << std::endl;
+        show_perf(show_stat, length, nbatch, itype, otype, time[idx]);
     }
 
     // Clean up:

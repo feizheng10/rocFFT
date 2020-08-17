@@ -103,7 +103,8 @@ int main(int argc, char* argv[])
         ("istride", po::value<std::vector<size_t>>(&istride)->multitoken(), "Input strides.")
         ("ostride", po::value<std::vector<size_t>>(&ostride)->multitoken(), "Output strides.")
         ("ioffset", po::value<std::vector<size_t>>(&ioffset)->multitoken(), "Input offsets.")
-        ("ooffset", po::value<std::vector<size_t>>(&ooffset)->multitoken(), "Output offsets.");
+        ("ooffset", po::value<std::vector<size_t>>(&ooffset)->multitoken(), "Output offsets.")
+        ("stat", "Show gpu execution time and gflops with min, mean, median and max of all smaples.");
     // clang-format on
 
     po::variables_map vm;
@@ -135,6 +136,8 @@ int main(int argc, char* argv[])
         = vm.count("notInPlace") ? rocfft_placement_notinplace : rocfft_placement_inplace;
     const rocfft_precision precision
         = vm.count("double") ? rocfft_precision_double : rocfft_precision_single;
+
+    const bool show_stat = vm.count("stat") ? true : false;
 
     if(vm.count("notInPlace"))
     {
@@ -394,24 +397,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    std::cout << "\nExecution gpu time:";
-    for(const auto& i : gpu_time)
-    {
-        std::cout << " " << i;
-    }
-    std::cout << " ms" << std::endl;
-
-    std::cout << "Execution gflops:  ";
-    const double totsize
-        = std::accumulate(length.begin(), length.end(), 1, std::multiplies<size_t>());
-    const double k
-        = ((itype == rocfft_array_type_real) || (otype == rocfft_array_type_real)) ? 2.5 : 5.0;
-    const double opscount = (double)nbatch * k * totsize * log(totsize) / log(2.0);
-    for(const auto& i : gpu_time)
-    {
-        std::cout << " " << opscount / (1e6 * i);
-    }
-    std::cout << std::endl;
+    show_perf(show_stat, length, nbatch, itype, otype, gpu_time);
 
     // Clean up:
     rocfft_plan_description_destroy(desc);
