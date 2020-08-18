@@ -105,7 +105,8 @@ int main(int argc, char* argv[])
         ("ioffset", po::value<std::vector<size_t>>(&ioffset)->multitoken(), "Input offsets.")
         ("ooffset", po::value<std::vector<size_t>>(&ooffset)->multitoken(), "Output offsets.")
         ("stat", "Show gpu execution time and gflops with min, mean, median and max of all smaples.")
-        ("noWarmup,u", "No pre-run.");
+        ("noWarmup,u", "No pre-run.")
+        ("wallTime,w", "Enable cpu wall time.");
     // clang-format on
 
     po::variables_map vm;
@@ -353,7 +354,8 @@ int main(int argc, char* argv[])
         for(int idx = 0; idx < input.size(); ++idx)
         {
             HIP_V_THROW(
-                hipMemcpy(ibuffer[idx], input[idx].data(), input[idx].size(), hipMemcpyHostToDevice),
+                hipMemcpy(
+                    ibuffer[idx], input[idx].data(), input[idx].size(), hipMemcpyHostToDevice),
                 "hipMemcpy failed");
         }
         rocfft_execute(plan, ibuffer.data(), obuffer.data(), info);
@@ -361,7 +363,9 @@ int main(int argc, char* argv[])
 
     // Run the transform several times and record the execution time:
     std::vector<double> gpu_time(ntrial);
+    std::vector<double> wall_time(ntrial);
 
+    Timer      tr;
     hipEvent_t start, stop;
     HIP_V_THROW(hipEventCreate(&start), "hipEventCreate failed");
     HIP_V_THROW(hipEventCreate(&stop), "hipEventCreate failed");
@@ -377,6 +381,7 @@ int main(int argc, char* argv[])
                 "hipMemcpy failed");
         }
 
+        tr.Start();
         HIP_V_THROW(hipEventRecord(start), "hipEventRecord failed");
 
         rocfft_execute(plan, ibuffer.data(), obuffer.data(), info);
@@ -386,7 +391,8 @@ int main(int argc, char* argv[])
 
         float time;
         hipEventElapsedTime(&time, start, stop);
-        gpu_time[itrial] = time;
+        gpu_time[itrial]  = time;
+        wall_time[itrial] = tr.Sample();
 
         if(verbose > 2)
         {
@@ -398,6 +404,27 @@ int main(int argc, char* argv[])
             }
             std::cout << "GPU output:\n";
             printbuffer(precision, otype, output, olength, ostride, nbatch, odist);
+        }
+    }
+
+    if(vm.count("wallTime"))
+    {
+        std::tuple<float, float, float, float> s;
+        std::cout << "\nExecution cpu time:";
+        if(!show_stat)
+        {
+            for(const auto& i : wall_time)
+            {
+                std::cout << " " << i;
+            }
+            std::cout << " ms" << std::endl;
+        }
+        else
+        {
+            s = m_4(wall_time);
+            std::cout << " min: " << std::setw(11) << std::get<0>(s) << ", mean: " << std::setw(11)
+                      << std::get<1>(s) << ", median " << std::setw(11) << std::get<2>(s)
+                      << ", max: " << std::setw(11) << std::get<3>(s) << " ms" << std::endl;
         }
     }
 
