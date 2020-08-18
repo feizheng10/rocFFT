@@ -139,7 +139,9 @@ int main(int argc, char* argv[])
     const rocfft_precision precision
         = vm.count("double") ? rocfft_precision_double : rocfft_precision_single;
 
-    const bool show_stat = vm.count("stat") ? true : false;
+    const bool show_stat      = vm.count("stat") ? true : false;
+    const bool no_pre_run     = vm.count("noWarmup") ? true : false;
+    const bool show_wall_time = vm.count("wallTime") ? true : false;
 
     if(vm.count("notInPlace"))
     {
@@ -349,7 +351,7 @@ int main(int argc, char* argv[])
     }
 
     // Warm up once:
-    if(!vm.count("noWarmup"))
+    if(!no_pre_run)
     {
         for(int idx = 0; idx < input.size(); ++idx)
         {
@@ -407,28 +409,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    if(vm.count("wallTime"))
-    {
-        std::tuple<float, float, float, float> s;
-        std::cout << "\nExecution cpu time:";
-        if(!show_stat)
-        {
-            for(const auto& i : wall_time)
-            {
-                std::cout << " " << i;
-            }
-            std::cout << " ms" << std::endl;
-        }
-        else
-        {
-            s = m_4(wall_time);
-            std::cout << " min: " << std::setw(11) << std::get<0>(s) << ", mean: " << std::setw(11)
-                      << std::get<1>(s) << ", median " << std::setw(11) << std::get<2>(s)
-                      << ", max: " << std::setw(11) << std::get<3>(s) << " ms" << std::endl;
-        }
-    }
-
-    show_perf(show_stat, length, nbatch, itype, otype, gpu_time);
+    show_perf(show_stat, show_wall_time, length, nbatch, itype, otype, gpu_time, wall_time);
 
     // Clean up:
     rocfft_plan_description_destroy(desc);

@@ -2198,15 +2198,40 @@ std::tuple<T, T, T, T> m_4(std::vector<T> const& a)
 // Print execution gpu time and gflops
 template <typename Tsize>
 inline void show_perf(bool                       show_stat,
+                      bool                       show_wall_time,
                       std::vector<Tsize> const&  length,
                       Tsize                      nbatch,
                       rocfft_array_type          itype,
                       rocfft_array_type          otype,
-                      std::vector<double> const& gpu_time)
+                      std::vector<double> const& gpu_time,
+                      std::vector<double> const& wall_time)
 {
     std::tuple<float, float, float, float> s;
 
-    std::cout << "\nExecution gpu time:";
+    std::cout << "\n";
+
+    if(show_wall_time)
+    {
+        std::tuple<float, float, float, float> s;
+        std::cout << "Execution cpu time:";
+        if(!show_stat)
+        {
+            for(const auto& i : wall_time)
+            {
+                std::cout << " " << i;
+            }
+            std::cout << " ms" << std::endl;
+        }
+        else
+        {
+            s = m_4(wall_time);
+            std::cout << " min: " << std::setw(11) << std::get<0>(s) << ", mean: " << std::setw(11)
+                      << std::get<1>(s) << ", median " << std::setw(11) << std::get<2>(s)
+                      << ", max: " << std::setw(11) << std::get<3>(s) << " ms" << std::endl;
+        }
+    }
+
+    std::cout << "Execution gpu time:";
     if(!show_stat)
     {
         for(const auto& i : gpu_time)

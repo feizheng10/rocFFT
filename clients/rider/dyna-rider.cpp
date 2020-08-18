@@ -26,6 +26,7 @@
 #include <hip/hip_runtime_api.h>
 #include <iostream>
 #include <math.h>
+#include <utility>
 #include <vector>
 
 #include <dlfcn.h>
@@ -160,14 +161,16 @@ rocfft_execution_info make_execinfo(void* libhandle, const size_t wbuffersize, v
 // Given a libhandle from dload and a corresponding rocFFT plan and execution info,
 // execute a transform on the given input and output buffers and return the kernel
 // execution time.
-float run_plan(void* libhandle, rocfft_plan plan, rocfft_execution_info info, void** in, void** out)
+std::pair<float, float>
+    run_plan(void* libhandle, rocfft_plan plan, rocfft_execution_info info, void** in, void** out)
 {
-    auto procfft_execute = (decltype(&rocfft_execute))dlsym(libhandle, "rocfft_execute");
-
+    auto       procfft_execute = (decltype(&rocfft_execute))dlsym(libhandle, "rocfft_execute");
+    Timer      tr;
     hipEvent_t start, stop;
     HIP_V_THROW(hipEventCreate(&start), "hipEventCreate failed");
     HIP_V_THROW(hipEventCreate(&stop), "hipEventCreate failed");
 
+    tr.Start();
     HIP_V_THROW(hipEventRecord(start), "hipEventRecord failed");
 
     procfft_execute(plan, in, out, info);
@@ -175,9 +178,10 @@ float run_plan(void* libhandle, rocfft_plan plan, rocfft_execution_info info, vo
     HIP_V_THROW(hipEventRecord(stop), "hipEventRecord failed");
     HIP_V_THROW(hipEventSynchronize(stop), "hipEventSynchronize failed");
 
-    float time;
-    hipEventElapsedTime(&time, start, stop);
-    return time;
+    float gpu_time;
+    hipEventElapsedTime(&gpu_time, start, stop);
+
+    return std::make_pair(gpu_time, static_cast<float>(tr.Sample()));
 }
 
 int main(int argc, char* argv[])
@@ -259,7 +263,9 @@ int main(int argc, char* argv[])
         ("ostride", po::value<std::vector<size_t>>(&ostride)->multitoken(), "Output strides.")
         ("ioffset", po::value<std::vector<size_t>>(&ioffset)->multitoken(), "Input offsets.")
         ("ooffset", po::value<std::vector<size_t>>(&ooffset)->multitoken(), "Output offsets.")
-        ("stat", "Show gpu execution time and gflops with min, mean, median and max of all smaples.");
+        ("stat", "Show gpu execution time and gflops with min, mean, median and max of all smaples.")
+        ("noWarmup,u", "No pre-run.")
+        ("wallTime,w", "Enable cpu wall time.");
     // clang-format on
 
     po::variables_map vm;
@@ -279,7 +285,9 @@ int main(int argc, char* argv[])
         return 0;
     }
 
-    const bool show_stat = vm.count("stat") ? true : false;
+    const bool show_stat      = vm.count("stat") ? true : false;
+    const bool no_pre_run     = vm.count("noWarmup") ? true : false;
+    const bool show_wall_time = vm.count("wallTime") ? true : false;
 
     const rocfft_result_placement place
         = vm.count("notInPlace") ? rocfft_placement_notinplace : rocfft_placement_inplace;
@@ -523,7 +531,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    if(handles.size())
+    if((!no_pre_run) && handles.size())
     {
         // Run a kernel once to load the instructions on the GPU:
 
@@ -542,7 +550,8 @@ int main(int argc, char* argv[])
     }
 
     // Execution times for loaded libraries:
-    std::vector<std::vector<double>> time(libs.size());
+    std::vector<std::vector<double>> gpu_time(libs.size());
+    std::vector<std::vector<double>> wall_time(libs.size());
 
     // Run the FFTs from the different libraries in random order until they all have at
     // least ntrial times.
@@ -568,8 +577,10 @@ int main(int argc, char* argv[])
         }
 
         // Run the plan using its associated rocFFT library:
-        time[idx].push_back(
-            run_plan(handles[idx], plan[idx], info[idx], ibuffer.data(), obuffer.data()));
+        std::pair<float, float> tp
+            = run_plan(handles[idx], plan[idx], info[idx], ibuffer.data(), obuffer.data());
+        gpu_time[idx].push_back(tp.first);
+        wall_time[idx].push_back(tp.second);
 
         if(verbose > 2)
         {
@@ -584,9 +595,10 @@ int main(int argc, char* argv[])
         }
     }
 
-    for(int idx = 0; idx < time.size(); ++idx)
+    for(int idx = 0; idx < gpu_time.size(); ++idx)
     {
-        show_perf(show_stat, length, nbatch, itype, otype, time[idx]);
+        show_perf(
+            show_stat, show_wall_time, length, nbatch, itype, otype, gpu_time[idx], wall_time[idx]);
     }
 
     // Clean up:
