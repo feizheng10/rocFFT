@@ -65,31 +65,31 @@ class RefLibHandle
         : fftw3f_lib(nullptr)
         , fftw3_lib(nullptr)
     {
-        const char* fftw3f_lib_path = getenv("ROCFFT_DBG_FFTW3F_LIB");
-        const char* fftw3_lib_path  = getenv("ROCFFT_DBG_FFTW3_LIB");
+        char* env_value_fftw3f = getenv("ROCFFT_DBG_FFTW3F_LIB");
+        char* env_value_fftw3  = getenv("ROCFFT_DBG_FFTW3_LIB");
 
-        if(!fftw3f_lib_path)
+        if(!env_value_fftw3f)
         {
-            fftw3f_lib_path = "libfftw3f.so";
+            std::cout << "error finding fftw3f lib, set env variable ROCFFT_DBG_FFTW3F_LIB"
+                      << std::endl;
         }
 
-        if(!fftw3_lib_path)
+        if(!env_value_fftw3)
         {
-            fftw3_lib_path = "libfftw3.so";
+            std::cout << "error finding fftw3 lib, set env variable ROCFFT_DBG_FFTW3_LIB"
+                      << std::endl;
         }
 
-        fftw3f_lib = dlopen(fftw3f_lib_path, RTLD_NOW);
+        fftw3f_lib = dlopen(env_value_fftw3f, RTLD_NOW);
         if(!fftw3f_lib)
         {
-            rocfft_cout << "error opening " << fftw3f_lib_path << ": " << dlerror() << std::endl;
-            rocfft_cout << "set env variable ROCFFT_DBG_FFTW3F_LIB to a valid path\n";
+            std::cout << "error in fftw3f dlopen" << std::endl;
         }
 
-        fftw3_lib = dlopen(fftw3_lib_path, RTLD_NOW);
+        fftw3_lib = dlopen(env_value_fftw3, RTLD_NOW);
         if(!fftw3_lib)
         {
-            rocfft_cout << "error opening " << fftw3_lib_path << ": " << dlerror() << std::endl;
-            rocfft_cout << "set env variable ROCFFT_DBG_FFTW3_LIB to a valid path\n";
+            std::cout << "error in fftw3 dlopen" << std::endl;
         }
     }
 
@@ -110,13 +110,13 @@ public:
 
     ~RefLibHandle()
     {
-        if(fftw3f_lib)
+        if(!fftw3f_lib)
         {
             dlclose(fftw3f_lib);
             fftw3f_lib = nullptr;
         }
 
-        if(fftw3_lib)
+        if(!fftw3_lib)
         {
             dlclose(fftw3_lib);
             fftw3_lib = nullptr;
@@ -502,43 +502,6 @@ class RefLibOp
             local_fftwf_destroy_plan(p);
         }
         break;
-        case CS_KERNEL_2D_SINGLE:
-        {
-            RefLibHandle&             refHandle = RefLibHandle::GetRefLibHandle();
-            ftype_fftwf_plan_many_dft local_fftwf_plan_many_dft
-                = (ftype_fftwf_plan_many_dft)dlsym(refHandle.fftw3f_lib, "fftwf_plan_many_dft");
-            ftype_fftwf_execute local_fftwf_execute
-                = (ftype_fftwf_execute)dlsym(refHandle.fftw3f_lib, "fftwf_execute");
-            ftype_fftwf_destroy_plan local_fftwf_destroy_plan
-                = (ftype_fftwf_destroy_plan)dlsym(refHandle.fftw3f_lib, "fftwf_destroy_plan");
-
-            // fftw does row-major indexing and we have column-major,
-            // so give N1, N0
-            int n[2]    = {static_cast<int>(data->node->length[1]),
-                        static_cast<int>(data->node->length[0])};
-            int howmany = data->node->batch;
-            for(size_t i = 2; i < data->node->length.size(); i++)
-                howmany *= data->node->length[i];
-
-            void* p = local_fftwf_plan_many_dft(2,
-                                                n,
-                                                howmany,
-                                                (local_fftwf_complex*)fftwin.data,
-                                                NULL,
-                                                1,
-                                                n[0],
-                                                (local_fftwf_complex*)fftwout.data,
-                                                NULL,
-                                                1,
-                                                n[0],
-                                                (data->node->direction == -1) ? LOCAL_FFTW_FORWARD
-                                                                              : LOCAL_FFTW_BACKWARD,
-                                                LOCAL_FFTW_ESTIMATE);
-            CopyInputVector(data_p);
-            local_fftwf_execute(p);
-            local_fftwf_destroy_plan(p);
-        }
-        break;
         case CS_KERNEL_TRANSPOSE:
         {
             // TODO: what about the real transpose case?
@@ -654,8 +617,8 @@ class RefLibOp
                 elements *= data->node->length[d];
             }
 
-            rocfft_cout << "iDist: " << data->node->iDist << " Dist: " << data->node->oDist
-                        << " in complex2hermitian kernel\n";
+            std::cout << "iDist: " << data->node->iDist << " Dist: " << data->node->oDist
+                      << " in complex2hermitian kernel\n";
             for(size_t b = 0; b < data->node->batch; b++)
             {
                 for(size_t i = 0; i < elements; i++) // TODO: only work for 1D cases
@@ -681,8 +644,8 @@ class RefLibOp
             size_t output_size = data->node->length[0];
             size_t input_size  = output_size / 2 + 1;
 
-            rocfft_cout << "iDist: " << data->node->iDist << " Dist: " << data->node->oDist
-                        << " in hermitian2complex kernel\n";
+            std::cout << "iDist: " << data->node->iDist << " Dist: " << data->node->oDist
+                      << " in hermitian2complex kernel\n";
 
             for(size_t b = 0; b < data->node->batch; b++)
             {
@@ -895,7 +858,7 @@ class RefLibOp
         default:
             // assert(false);
             // do not terminate the program but only tells not implemented
-            rocfft_cout << "Not implemented\n";
+            std::cout << "Not implemented\n";
         }
     }
 
@@ -1035,22 +998,22 @@ public:
         rmse         = sqrt(rmse / (double)checklength);
         double nrmse = rmse / maxMag;
 
-        rocfft_cout << "rmse: " << rmse << std::endl << "nrmse: " << nrmse << std::endl;
-        rocfft_cout << "---------------------------------------------" << std::endl;
+        std::cout << "rmse: " << rmse << std::endl << "nrmse: " << nrmse << std::endl;
+        std::cout << "---------------------------------------------" << std::endl;
 
 #if 0
         std::complex<float>* in      = (std::complex<float>*)fftwin.data;
 
-        rocfft_cout << "input:" << std::endl;
+        std::cout << "input:" << std::endl;
         for(size_t i = 0; i < fftwin.size; ++i)
         {
-            rocfft_cout << i << "\t(" << in[i].real() << ", " << in[i].imag() << ")\n";
+            std::cout << i << "\t(" << in[i].real() << ", " << in[i].imag() << ")\n";
         }
 
-        rocfft_cout << "lib output vs cpu output:" << std::endl;
+        std::cout << "lib output vs cpu output:" << std::endl;
         for(size_t i = 0; i < libout.size; ++i)
         {
-            rocfft_cout << i << "\t(" << lb[i].real() << "," << lb[i].imag() << ")"
+            std::cout << i << "\t(" << lb[i].real() << "," << lb[i].imag() << ")"
                       << "\t(" << ot[i].real() << "," << ot[i].imag() << ")\n";
         }
 #endif

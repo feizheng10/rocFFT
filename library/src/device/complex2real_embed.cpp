@@ -64,6 +64,9 @@ void complex2real(const void* data_p, void* back_p)
 
     size_t input_size = data->node->length[0];
 
+    if(input_size == 1)
+        return;
+
     size_t input_distance  = data->node->iDist;
     size_t output_distance = data->node->oDist;
 
@@ -139,6 +142,8 @@ void complex2real(const void* data_p, void* back_p)
                            input_distance,
                            (double*)output_buffer,
                            output_distance);
+
+    return;
 }
 
 template <typename T>
@@ -273,6 +278,9 @@ void hermitian2complex(const void* data_p, void* back_p)
     size_t dim_0          = data->node->length[0]; // dim_0 is the innermost dimension
     size_t hermitian_size = dim_0 / 2 + 1;
 
+    if(dim_0 == 1)
+        return;
+
     size_t input_distance  = data->node->iDist;
     size_t output_distance = data->node->oDist;
 
@@ -298,7 +306,7 @@ void hermitian2complex(const void* data_p, void* back_p)
     size_t blocks = (hermitian_size - 1) / 512 + 1;
 
     if(data->node->length.size() > 3)
-        rocfft_cout << "Error: dimension larger than 3, which is not handled" << std::endl;
+        std::cout << "Error: dimension larger than 3, which is not handled" << std::endl;
 
     size_t dim_1 = 1, dim_2 = 1;
     if(data->node->length.size() >= 2)

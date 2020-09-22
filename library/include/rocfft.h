@@ -357,8 +357,7 @@ ROCFFT_EXPORT rocfft_status rocfft_execution_info_set_mode( rocfft_execution_inf
  *  It is the underlying device queue/stream where the library computations
  * would be inserted. The library assumes user
  *  has created such a stream in the program and merely assigns work to the
- * stream. The stream must be of type hipStream_t. It is an error to pass the
- * address of a hipStream_t object.
+ * stream.
  *  @param[in] info execution info handle
  *  @param[in] stream underlying compute stream
  *  */

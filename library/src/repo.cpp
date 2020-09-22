@@ -31,22 +31,18 @@
 
 // Implementation of Class Repo
 
-std::mutex        Repo::mtx;
-std::atomic<bool> Repo::repoDestroyed(false);
+std::mutex Repo::mtx;
 
-rocfft_status Repo::CreatePlan(rocfft_plan plan)
+void Repo::CreatePlan(rocfft_plan plan)
 {
+    Repo&                       repo = Repo::GetRepo();
     std::lock_guard<std::mutex> lck(mtx);
-    if(repoDestroyed)
-        return rocfft_status_failure;
-
-    Repo& repo = Repo::GetRepo();
 
     // see if the repo has already stored the plan or not
     auto it = repo.planUnique.find(*plan);
     if(it == repo.planUnique.end()) // if not found
     {
-        auto rootPlan = TreeNode::CreateNode();
+        TreeNode* rootPlan = TreeNode::CreateNode();
 
         rootPlan->dimension = plan->rank;
         rootPlan->batch     = plan->batch;
@@ -72,22 +68,16 @@ rocfft_status Repo::CreatePlan(rocfft_plan plan)
         rootPlan->outArrayType = plan->desc.outArrayType;
 
         ExecPlan execPlan;
-        execPlan.rootPlan = std::move(rootPlan);
+        execPlan.rootPlan = rootPlan;
         ProcessNode(execPlan); // TODO: more descriptions are needed
         if(LOG_TRACE_ENABLED())
             PrintNode(*LogSingleton::GetInstance().GetTraceOS(), execPlan);
 
-        if(!PlanPowX(execPlan)) // PlanPowX enqueues the GPU kernels by function
-        {
-            return rocfft_status_failure;
-        }
-
+        PlanPowX(execPlan); // PlanPowX enqueues the GPU kernels by function
         // pointers but does not execute kernels
-
-        // add this plan into member planUnique (type of map)
-        repo.planUnique[*plan] = std::make_pair(execPlan, 1);
-        // add this plan into member execLookup (type of map)
-        repo.execLookup[plan] = execPlan;
+        repo.planUnique[*plan] = std::pair<ExecPlan, int>(
+            execPlan, 1); // add this plan into member planUnique (type of map)
+        repo.execLookup[plan] = execPlan; // add this plan into member execLookup (type of map)
     }
     else // find the stored plan
     {
@@ -95,17 +85,12 @@ rocfft_status Repo::CreatePlan(rocfft_plan plan)
             = it->second.first; // retrieve this plan and put it into member execLookup
         it->second.second++;
     }
-
-    return rocfft_status_success;
 }
 // According to input plan, return the corresponding execPlan
 void Repo::GetPlan(rocfft_plan plan, ExecPlan& execPlan)
 {
+    Repo&                       repo = Repo::GetRepo();
     std::lock_guard<std::mutex> lck(mtx);
-    if(repoDestroyed)
-        return;
-
-    Repo& repo = Repo::GetRepo();
     if(repo.execLookup.find(plan) != repo.execLookup.end())
         execPlan = repo.execLookup[plan];
 }
@@ -113,12 +98,9 @@ void Repo::GetPlan(rocfft_plan plan, ExecPlan& execPlan)
 // Remove the plan from Repo and release its ExecPlan resources if it is the last reference
 void Repo::DeletePlan(rocfft_plan plan)
 {
+    Repo&                       repo = Repo::GetRepo();
     std::lock_guard<std::mutex> lck(mtx);
-    if(repoDestroyed)
-        return;
-
-    Repo& repo = Repo::GetRepo();
-    auto  it   = repo.execLookup.find(plan);
+    auto                        it = repo.execLookup.find(plan);
     if(it != repo.execLookup.end())
     {
         repo.execLookup.erase(it);
@@ -130,6 +112,8 @@ void Repo::DeletePlan(rocfft_plan plan)
         it_u->second.second--;
         if(it_u->second.second <= 0)
         {
+            TreeNode::DeleteNode(it_u->second.first.rootPlan);
+            it_u->second.first.rootPlan = nullptr;
             repo.planUnique.erase(it_u);
         }
     }
@@ -137,20 +121,14 @@ void Repo::DeletePlan(rocfft_plan plan)
 
 size_t Repo::GetUniquePlanCount()
 {
+    Repo&                       repo = Repo::GetRepo();
     std::lock_guard<std::mutex> lck(mtx);
-    if(repoDestroyed)
-        return 0;
-
-    Repo& repo = Repo::GetRepo();
     return repo.planUnique.size();
 }
 
 size_t Repo::GetTotalPlanCount()
 {
+    Repo&                       repo = Repo::GetRepo();
     std::lock_guard<std::mutex> lck(mtx);
-    if(repoDestroyed)
-        return 0;
-
-    Repo& repo = Repo::GetRepo();
     return repo.execLookup.size();
 }

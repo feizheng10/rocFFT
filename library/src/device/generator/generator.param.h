@@ -84,7 +84,6 @@ struct FFTKernelGenKeyParams
 
     long limit_LocalMemSize;
 
-    bool forceNonUnitStride = false;
     // Default constructor
     FFTKernelGenKeyParams()
     {

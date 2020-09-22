@@ -37,27 +37,15 @@ struct SimpleHash
         return hash<size_t>()(hash_in);
     }
 
-    std::size_t operator()(const std::tuple<size_t, size_t, ComputeScheme>& p) const noexcept
-    {
-        std::size_t h1 = std::hash<size_t>{}(std::get<0>(p));
-        std::size_t h2 = std::hash<size_t>{}(std::get<1>(p));
-        std::size_t h3 = std::hash<ComputeScheme>{}(std::get<2>(p));
-        return h1 ^ h2 ^ h3;
-    }
-
-    // example usage:  function_map_single[std::make_pair(64,CS_KERNEL_STOCKHAM)]
+    // exampel usage:  function_map_single[std::make_pair(64,CS_KERNEL_STOCKHAM)]
     // = &rocfft_internal_dfn_sp_ci_ci_stoc_1_64;
 };
 
 class function_pool
 {
-    using Key   = std::pair<size_t, ComputeScheme>;
-    using Key2D = std::tuple<size_t, size_t, ComputeScheme>;
-
-    std::unordered_map<Key, DevFnCall, SimpleHash>   function_map_single;
-    std::unordered_map<Key, DevFnCall, SimpleHash>   function_map_double;
-    std::unordered_map<Key2D, DevFnCall, SimpleHash> function_map_single_2D;
-    std::unordered_map<Key2D, DevFnCall, SimpleHash> function_map_double_2D;
+    using Key = std::pair<size_t, ComputeScheme>;
+    std::unordered_map<Key, DevFnCall, SimpleHash> function_map_single;
+    std::unordered_map<Key, DevFnCall, SimpleHash> function_map_double;
 
     function_pool();
 
@@ -89,18 +77,6 @@ public:
         return func_pool.function_map_double.at(mykey);
     }
 
-    static DevFnCall get_function_single_2D(Key2D mykey)
-    {
-        function_pool& func_pool = get_function_pool();
-        return func_pool.function_map_single_2D.at(mykey);
-    }
-
-    static DevFnCall get_function_double_2D(Key2D mykey)
-    {
-        function_pool& func_pool = get_function_pool();
-        return func_pool.function_map_double_2D.at(mykey);
-    }
-
     static void verify_no_null_functions()
     {
         function_pool& func_pool = get_function_pool();
@@ -111,7 +87,7 @@ public:
         {
             if(it->second == nullptr)
             {
-                rocfft_cout << "null ptr registered in function_map_single" << std::endl;
+                std::cout << "null ptr registered in function_map_single" << std::endl;
             }
         }
 
@@ -121,7 +97,7 @@ public:
         {
             if(it->second == nullptr)
             {
-                rocfft_cout << "null ptr registered in function_map_double" << std::endl;
+                std::cout << "null ptr registered in function_map_double" << std::endl;
             }
         }
     }

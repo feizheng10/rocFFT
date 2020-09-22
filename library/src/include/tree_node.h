@@ -24,12 +24,9 @@
 #include <cstring>
 #include <iostream>
 #include <map>
-#include <memory>
 #include <vector>
 
-#include "gpubuf.h"
 #include "kargs.h"
-#include "rocfft_ostream.hpp"
 #include "twiddles.h"
 
 enum OperatingBuffer
@@ -60,15 +57,9 @@ enum ComputeScheme
 
     CS_REAL_TRANSFORM_EVEN,
     CS_KERNEL_R_TO_CMPLX,
-    CS_KERNEL_R_TO_CMPLX_TRANSPOSE,
     CS_KERNEL_CMPLX_TO_R,
-    CS_KERNEL_TRANSPOSE_CMPLX_TO_R,
     CS_REAL_2D_EVEN,
     CS_REAL_3D_EVEN,
-
-    CS_REAL_TRANSFORM_PAIR,
-    CS_KERNEL_PAIR_PACK,
-    CS_KERNEL_PAIR_UNPACK,
 
     CS_BLUESTEIN,
     CS_KERNEL_CHIRP,
@@ -87,7 +78,6 @@ enum ComputeScheme
     CS_KERNEL_2D_SINGLE,
 
     CS_3D_STRAIGHT,
-    CS_3D_TRTRTR,
     CS_3D_RTRT,
     CS_3D_RC,
     CS_KERNEL_3D_STOCKHAM_BLOCK_CC,
@@ -103,7 +93,7 @@ enum TransTileDir
 class TreeNode
 {
 private:
-    // Disallow public creation
+    // disallow public creation
     TreeNode(TreeNode* p)
         : parent(p)
         , scheme(CS_NONE)
@@ -111,12 +101,14 @@ private:
         , obOut(OB_UNINIT)
         , large1D(0)
         , lengthBlue(0)
-        , iDist(0)
-        , oDist(0)
         , iOffset(0)
         , oOffset(0)
-        , pairdim(0)
+        , iDist(0)
+        , oDist(0)
         , transTileDir(TTD_IP_HOR)
+        , twiddles(nullptr)
+        , twiddles_large(nullptr)
+        , devKernArg(nullptr)
         , inArrayType(rocfft_array_type_unset)
         , outArrayType(rocfft_array_type_unset)
     {
@@ -126,93 +118,118 @@ private:
             batch     = p->batch;
             direction = p->direction;
         }
+
+        Pow2Lengths1Single.insert(std::make_pair(8192, 64));
+        Pow2Lengths1Single.insert(std::make_pair(16384, 64));
+        Pow2Lengths1Single.insert(std::make_pair(32768, 128));
+        Pow2Lengths1Single.insert(std::make_pair(65536, 256));
+        Pow2Lengths1Single.insert(std::make_pair(131072, 64));
+        Pow2Lengths1Single.insert(std::make_pair(262144, 64));
+
+        Pow2Lengths1Double.insert(std::make_pair(4096, 64));
+        Pow2Lengths1Double.insert(std::make_pair(8192, 64));
+        Pow2Lengths1Double.insert(std::make_pair(16384, 64));
+        Pow2Lengths1Double.insert(std::make_pair(32768, 128));
+        Pow2Lengths1Double.insert(std::make_pair(65536, 64));
+        Pow2Lengths1Double.insert(std::make_pair(131072, 64));
     }
 
     // Maps from length[0] to divLength1 for 1D transforms in
-    // single and double precision using block computing.
-    typedef std::map<size_t, size_t> Map1DLength;
-    static const Map1DLength         map1DLengthSingle;
-    static const Map1DLength         map1DLengthDouble;
+    // single and double precision for power-of-two transfor sizes
+    // using blocks.
+    std::map<size_t, size_t> Pow2Lengths1Single;
+    std::map<size_t, size_t> Pow2Lengths1Double;
 
     // Compute divLength1 from Length[0] for non-power-of-two 1D
     // transform sizes
     size_t div1DNoPo2(const size_t length0);
 
 public:
-    // Batch size
     size_t batch;
 
-    // Transform dimension - note this can be different from data dimension, user
+    // transform dimension - note this can be different from data dimension, user
     // provided
     size_t dimension;
 
-    // Length of the FFT in each dimension, internal value
+    // length of the FFT in each dimension, internal value
     std::vector<size_t> length;
 
-    // Stride of the FFT in each dimension
+    // stride of the FFT in each dimension
     std::vector<size_t> inStride, outStride;
 
-    // Distance between consecutive batch members:
+    // distance between consecutive batch members
     size_t iDist, oDist;
 
-    // Offsets to start of data in buffer:
-    size_t iOffset, oOffset;
-
-    // The paried dimension for real/complex paired transforms.
-    size_t pairdim;
-
-    // Direction of the transform (-1: forward, +1: inverse)
-    int direction;
-
-    // Data format parameters:
+    int                     direction;
     rocfft_result_placement placement;
     rocfft_precision        precision;
     rocfft_array_type       inArrayType, outArrayType;
 
-    // Extra twiddle multiplication for large 1D
+    // extra twiddle multiplication for large 1D
     size_t large1D;
 
-    // Tree structure:
-    // non-owning pointer to parent node, may be null
-    TreeNode* parent;
-    // owned pointers to children
-    std::vector<std::unique_ptr<TreeNode>> childNodes;
+    TreeNode*              parent;
+    std::vector<TreeNode*> childNodes;
 
-    // FIXME: document
     ComputeScheme   scheme;
     OperatingBuffer obIn, obOut;
 
-    // FIXME: document
     TransTileDir transTileDir;
 
-    // FIXME: document
     size_t lengthBlue;
+    size_t iOffset, oOffset;
 
-    // Device pointers:
-    gpubuf           twiddles;
-    gpubuf           twiddles_large;
-    gpubuf_t<size_t> devKernArg;
+    // these are device pointers
+    void*   twiddles;
+    void*   twiddles_large;
+    size_t* devKernArg;
 
 public:
-    // Disallow copy constructor:
-    TreeNode(const TreeNode&) = delete;
-
-    // Disallow assignment operator:
-    TreeNode& operator=(const TreeNode&) = delete;
+    TreeNode(const TreeNode&) = delete; // disallow copy constructor
+    TreeNode& operator=(const TreeNode&) = delete; // disallow assignment operator
 
     // create node (user level) using this function
-    static std::unique_ptr<TreeNode> CreateNode(TreeNode* parentNode = nullptr)
+    static TreeNode* CreateNode(TreeNode* parentNode = nullptr)
     {
-        // must use 'new' here instead of std::make_unique because
-        // TreeNode's ctor is private
-        return std::unique_ptr<TreeNode>(new TreeNode(parentNode));
+        return new TreeNode(parentNode);
+    }
+
+    // destroy node by calling this function
+    static void DeleteNode(TreeNode* node)
+    {
+        if(!node)
+            return;
+
+        for(auto children_p = node->childNodes.begin(); children_p != node->childNodes.end();
+            children_p++)
+        {
+            DeleteNode(*children_p); // recursively delete allocated nodes
+        }
+
+        if(node->twiddles)
+        {
+            twiddles_delete(node->twiddles);
+            node->twiddles = nullptr;
+        }
+
+        if(node->twiddles_large)
+        {
+            twiddles_delete(node->twiddles_large);
+            node->twiddles_large = nullptr;
+        }
+
+        if(node->devKernArg)
+        {
+            kargs_delete(node->devKernArg);
+            node->devKernArg = nullptr;
+        }
+
+        delete node;
+        node = NULL;
     }
 
     // Main tree builder:
     void RecursiveBuildTree();
-
-    bool use_CS_2D_SINGLE(); // To determine using scheme CS_KERNEL_2D_SINGLE or not
-    bool use_CS_2D_RC(); // To determine using scheme CS_2D_RC or not
 
     // Real-complex and complex-real node builders:
     void build_real();
@@ -220,7 +237,6 @@ public:
     void build_real_even_1D();
     void build_real_even_2D();
     void build_real_even_3D();
-    void build_real_pair();
 
     // 1D node builders:
     void build_1D();
@@ -229,88 +245,46 @@ public:
     void build_1DCS_L1D_CC(const size_t divLength0, const size_t divLength1);
     void build_1DCS_L1D_CRT(const size_t divLength0, const size_t divLength1);
 
-    // 2D node builders:
+    // 2D node builder:
     void build_CS_2D_RTRT();
-    void build_CS_2D_RC();
 
-    // 3D node builders:
-    // 3D 4 node builder, R: 2D FFTs, T: transpose XY_Z, R: row FFTs, T: transpose Z_XY
+    // 3D node builder:
     void build_CS_3D_RTRT();
-    // 3D 6 node builder, T: transpose Z_XY, R: row FFTs, T: transpose Z_XY, R: row FFTs, T: transpose Z_XY, R: row FFTs
-    void build_CS_3D_TRTRTR();
-
-    // State maintained while traversing the tree.
-    //
-    // Preparation and execution of the tree basically involves a
-    // depth-first traversal.  At each step, the logic working on a
-    // node could want to know details of:
-    //
-    // 1. the node itself (i.e. this)
-    // 2. the node's parent (i.e. this->parent), if present
-    // 3. the most recently traversed leaf node, which may be:
-    //    - not present, or
-    //    - an earlier sibling of this node, or
-    //    - the last leaf visited from some other parent
-    // 4. the root node's input/output parameters
-    //
-    // The TraverseState struct stores 3 and 4.
-    struct TraverseState;
-    // Assign the input buffer for this kernel
-    void SetInputBuffer(TraverseState& state);
 
     // Buffer assignment:
-    void TraverseTreeAssignBuffersLogicA(TraverseState&   state,
-                                         OperatingBuffer& flipIn,
+    void TraverseTreeAssignBuffersLogicA(OperatingBuffer& flipIn,
                                          OperatingBuffer& flipOut,
                                          OperatingBuffer& obOutBuf);
-    void assign_buffers_CS_REAL_TRANSFORM_USING_CMPLX(TraverseState&   state,
-                                                      OperatingBuffer& flipIn,
+    void assign_buffers_CS_REAL_TRANSFORM_USING_CMPLX(OperatingBuffer& flipIn,
                                                       OperatingBuffer& flipOut,
                                                       OperatingBuffer& obOutBuf);
-    void assign_buffers_CS_REAL_TRANSFORM_EVEN(TraverseState&   state,
-                                               OperatingBuffer& flipIn,
+    void assign_buffers_CS_REAL_TRANSFORM_EVEN(OperatingBuffer& flipIn,
                                                OperatingBuffer& flipOut,
                                                OperatingBuffer& obOutBuf);
-    void assign_buffers_CS_REAL_2D_EVEN(TraverseState&   state,
-                                        OperatingBuffer& flipIn,
+    void assign_buffers_CS_REAL_2D_EVEN(OperatingBuffer& flipIn,
                                         OperatingBuffer& flipOut,
                                         OperatingBuffer& obOutBuf);
-    void assign_buffers_CS_REAL_3D_EVEN(TraverseState&   state,
-                                        OperatingBuffer& flipIn,
+    void assign_buffers_CS_REAL_3D_EVEN(OperatingBuffer& flipIn,
                                         OperatingBuffer& flipOut,
                                         OperatingBuffer& obOutBuf);
-    void assign_buffers_CS_REAL_TRANSFORM_PAIR(TraverseState&   state,
-                                               OperatingBuffer& flipIn,
-                                               OperatingBuffer& flipOut,
-                                               OperatingBuffer& obOutBuf);
-    void assign_buffers_CS_BLUESTEIN(TraverseState&   state,
-                                     OperatingBuffer& flipIn,
+    void assign_buffers_CS_BLUESTEIN(OperatingBuffer& flipIn,
                                      OperatingBuffer& flipOut,
                                      OperatingBuffer& obOutBuf);
-    void assign_buffers_CS_L1D_TRTRT(TraverseState&   state,
-                                     OperatingBuffer& flipIn,
+    void assign_buffers_CS_L1D_TRTRT(OperatingBuffer& flipIn,
                                      OperatingBuffer& flipOut,
                                      OperatingBuffer& obOutBuf);
-    void assign_buffers_CS_L1D_CC(TraverseState&   state,
-                                  OperatingBuffer& flipIn,
+    void assign_buffers_CS_L1D_CC(OperatingBuffer& flipIn,
                                   OperatingBuffer& flipOut,
                                   OperatingBuffer& obOutBuf);
-    void assign_buffers_CS_L1D_CRT(TraverseState&   state,
-                                   OperatingBuffer& flipIn,
+    void assign_buffers_CS_L1D_CRT(OperatingBuffer& flipIn,
                                    OperatingBuffer& flipOut,
                                    OperatingBuffer& obOutBuf);
-    void assign_buffers_CS_RTRT(TraverseState&   state,
-                                OperatingBuffer& flipIn,
+    void assign_buffers_CS_RTRT(OperatingBuffer& flipIn,
                                 OperatingBuffer& flipOut,
                                 OperatingBuffer& obOutBuf);
-    void assign_buffers_CS_RC(TraverseState&   state,
-                              OperatingBuffer& flipIn,
+    void assign_buffers_CS_RC(OperatingBuffer& flipIn,
                               OperatingBuffer& flipOut,
                               OperatingBuffer& obOutBuf);
-    void assign_buffers_CS_3D_TRTRTR(TraverseState&   state,
-                                     OperatingBuffer& flipIn,
-                                     OperatingBuffer& flipOut,
-                                     OperatingBuffer& obOutBuf);
 
     // Set placement variable and in/out array types
     void TraverseTreeAssignPlacementsLogicA(rocfft_array_type rootIn, rocfft_array_type rootOut);
@@ -321,7 +295,6 @@ public:
     void assign_params_CS_REAL_TRANSFORM_EVEN();
     void assign_params_CS_REAL_2D_EVEN();
     void assign_params_CS_REAL_3D_EVEN();
-    void assign_params_CS_REAL_TRANSFORM_PAIR();
     void assign_params_CS_L1D_CC();
     void assign_params_CS_L1D_CRT();
     void assign_params_CS_BLUESTEIN();
@@ -329,7 +302,6 @@ public:
     void assign_params_CS_2D_RTRT();
     void assign_params_CS_2D_RC_STRAIGHT();
     void assign_params_CS_3D_RTRT();
-    void assign_params_CS_3D_TRTRTR();
     void assign_params_CS_3D_RC_STRAIGHT();
 
     // Determine work memory requirements:
@@ -340,15 +312,15 @@ public:
                                         size_t&                 chirpSize);
 
     // Output plan information for debug purposes:
-    void Print(rocfft_ostream& os = rocfft_cout, int indent = 0) const;
+    void Print(std::ostream& os = std::cout, int indent = 0) const;
 
     // logic B - using in-place transposes, todo
     //void RecursiveBuildTreeLogicB();
-
-    void RecursiveRemoveNode(TreeNode* node);
 };
 
+extern "C" {
 typedef void (*DevFnCall)(const void*, void*);
+}
 
 struct GridParam
 {
@@ -369,23 +341,27 @@ struct GridParam
 
 struct ExecPlan
 {
-    // shared pointer allows for ExecPlans to be copyable
-    std::shared_ptr<TreeNode> rootPlan;
-
-    // non-owning pointers to the leaf-node children of rootPlan, which
-    // are the nodes that do actual work
+    TreeNode*              rootPlan;
     std::vector<TreeNode*> execSeq;
-
     std::vector<DevFnCall> devFnCall;
     std::vector<GridParam> gridParam;
-    size_t                 workBufSize      = 0;
-    size_t                 tmpWorkBufSize   = 0;
-    size_t                 copyWorkBufSize  = 0;
-    size_t                 blueWorkBufSize  = 0;
-    size_t                 chirpWorkBufSize = 0;
+    size_t                 workBufSize;
+    size_t                 tmpWorkBufSize;
+    size_t                 copyWorkBufSize;
+    size_t                 blueWorkBufSize;
+    size_t                 chirpWorkBufSize;
+
+    ExecPlan()
+        : rootPlan(nullptr)
+        , workBufSize(0)
+        , tmpWorkBufSize(0)
+        , copyWorkBufSize(0)
+        , blueWorkBufSize(0)
+    {
+    }
 };
 
 void ProcessNode(ExecPlan& execPlan);
-void PrintNode(rocfft_ostream& os, const ExecPlan& execPlan);
+void PrintNode(std::ostream& os, const ExecPlan& execPlan);
 
 #endif // TREE_NODE_H

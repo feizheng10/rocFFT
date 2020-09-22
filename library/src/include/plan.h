@@ -25,7 +25,6 @@
 #include <cstring>
 #include <vector>
 
-#include "function_pool.h"
 #include "tree_node.h"
 
 static inline bool IsPo2(size_t u)
@@ -33,29 +32,10 @@ static inline bool IsPo2(size_t u)
     return (u != 0) && (0 == (u & (u - 1)));
 }
 
-// Calculate the maximum pow number with the given base number
-template <int base>
-constexpr size_t PowMax()
-{
-    size_t u = base;
-    while(u < std::numeric_limits<size_t>::max() / base)
-    {
-        u = u * base;
-    }
-    return u;
-}
-
-// Generic function to check is pow of a given base number or not
-template <int base>
-static inline bool IsPow(size_t u)
-{
-    constexpr size_t max = PowMax<base>(); //Practically, we could save this by using 3486784401
-    return (u > 0 && max % u == 0);
-}
-
 std::string PrintScheme(ComputeScheme cs);
+std::string PrintArrayType(const rocfft_array_type x);
 
-inline bool SupportedLength(rocfft_precision precision, size_t len)
+inline bool SupportedLength(size_t len)
 {
     size_t p = len;
     while(!(p % 2))
@@ -68,27 +48,8 @@ inline bool SupportedLength(rocfft_precision precision, size_t len)
 
     if(p == 1)
         return true;
-
-    // otherwise, see if there's a kernel for this specific length
-
-    // function pool throws if the size was not found, so if no
-    // exception was observed, the size is supported
-    try
-    {
-        switch(precision)
-        {
-        case rocfft_precision_single:
-            function_pool::get_function_single({len, CS_KERNEL_STOCKHAM});
-            return true;
-        case rocfft_precision_double:
-            function_pool::get_function_double({len, CS_KERNEL_STOCKHAM});
-            return true;
-        }
-    }
-    catch(std::exception&)
-    {
+    else
         return false;
-    }
 }
 
 inline size_t FindBlue(size_t len)
@@ -171,6 +132,6 @@ struct rocfft_plan_t
     }
 };
 
-bool PlanPowX(ExecPlan& execPlan);
+void PlanPowX(ExecPlan& execPlan);
 
 #endif // PLAN_H

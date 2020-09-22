@@ -24,16 +24,16 @@
 #if !defined(KARGS_H)
 #define KARGS_H
 
-#include "gpubuf.h"
 #include <cstddef>
 #include <vector>
 
 #define KERN_ARGS_ARRAY_WIDTH 16
 
-gpubuf_t<size_t> kargs_create(std::vector<size_t> length,
-                              std::vector<size_t> inStride,
-                              std::vector<size_t> outStride,
-                              size_t              iDist,
-                              size_t              oDist);
+size_t* kargs_create(std::vector<size_t> length,
+                     std::vector<size_t> inStride,
+                     std::vector<size_t> outStride,
+                     size_t              iDist,
+                     size_t              oDist);
+void    kargs_delete(void* devk);
 
 #endif // defined( KARGS_H )

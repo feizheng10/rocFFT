@@ -48,21 +48,21 @@ public:
 
     ~Repo()
     {
-        repoDestroyed = true;
+        // in case there are plans left without calling DeletePlan()
+        auto it = planUnique.begin();
+        while(it != planUnique.end())
+        {
+            TreeNode::DeleteNode(it->second.first.rootPlan);
+            it->second.first.rootPlan = nullptr;
+            it++;
+        }
     }
 
-    static rocfft_status CreatePlan(rocfft_plan plan);
-    static void          GetPlan(rocfft_plan plan, ExecPlan& execPlan);
-    static void          DeletePlan(rocfft_plan plan);
-    static size_t        GetUniquePlanCount();
-    static size_t        GetTotalPlanCount();
-
-    // Repo is a singleton that should only be destroyed on static
-    // deinitialization.  But it's possible for other things to want to
-    // destroy plans at static deinitialization time.  So keep track of
-    // whether the repo has been destroyed, so we can avoid wanting it
-    // again.
-    static std::atomic<bool> repoDestroyed;
+    static void   CreatePlan(rocfft_plan plan);
+    static void   GetPlan(rocfft_plan plan, ExecPlan& execPlan);
+    static void   DeletePlan(rocfft_plan plan);
+    static size_t GetUniquePlanCount();
+    static size_t GetTotalPlanCount();
 };
 
 #endif // REPO_H
