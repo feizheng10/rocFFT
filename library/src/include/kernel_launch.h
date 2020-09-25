@@ -28,7 +28,7 @@
 #include "error.h"
 #endif
 #include "kargs.h"
-//#include "kernel_launch_generator.h"
+#include "kernel_launch_generator.h"
 #include "rocfft.h"
 #include "rocfft_hip.h"
 #include "tree_node.h"
