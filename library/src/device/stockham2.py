@@ -487,8 +487,7 @@ class StockhamKernel:
 
         dtmpls = TemplateList(kvars.scalar_type, kvars.sb)
         #+ ([Ttwd_large, ltwd_base] if tiling==Tiling.cc else [])
-        dargs = ArgumentList(kvars.buf, kvars.lds, kvars.twiddles,
-                             kvars.stride0, kvars.offset, kvars.offset_lds)
+        dargs = ArgumentList(kvars.lds, kvars.twiddles, kvars.stride0, kvars.offset_lds)
 #        if + ([twd_large_arguments, transform] if tiling==Tiling.cc else []),
 
         body += Call(f'forward_length{self.length}_{self.tiling.name}_device',
@@ -534,40 +533,24 @@ class StockhamKernelUWide(StockhamKernel):
 
 
     def generate_device_function(self, **kwargs):
-        # pass down for now...
         factors = self.factors
         length = product(factors)
         params = get_launch_params(factors, **kwargs)
 
-        # template params
-        sb          = Variable('sb', 'StrideBin')
-        Ttwd_large  = Variable('Ttwd_large', 'bool')
-        scalar_type = Variable('scalar_type', 'typename')
-        ltwd_base   = Variable('LTBase', 'size_t')
+        kvars, kwvars = common_variables(length, params)
 
-        # arguments
-        Z           = Variable('buf', 'scalar_type', array=True)
-        X           = Variable('lds', 'scalar_type', array=True)
-        T           = Variable('twiddles', 'const scalar_type', array=True)
-        twd_large   = Variable('twd_large', 'const scalar_type', array=True)
-        offset      = Variable('offset', 'size_t')
-        stride      = Variable('stride', 'size_t')
-        offset_lds  = Variable('offset_lds', 'unsigned int') # lds address space is limited to 64K
-        trans_local = Variable('trans_local', 'size_t')
-
-        # locals
-        thread    = Variable('thread', 'int')
-        thread_id = Variable('threadIdx.x', 'int')
-        W         = Variable('W', 'scalar_type')
-        t         = Variable('t', 'scalar_type')
-        R         = Variable('R', 'scalar_type', max(factors))
+        X      = Variable('lds', 'scalar_type', array=True)
+        thread = kvars.thread
+        T      = kvars.twiddles
+        W      = Variable('W', 'scalar_type')
+        t      = Variable('t', 'scalar_type')
+        R      = Variable('R', 'scalar_type', max(factors))
 
         body = StatementList()
         body += Declarations(thread, R, W, t)
 
         body += LineBreak()
-        body += Assign(thread, thread_id % (length // min(factors)))
-        body += LineBreak()
+        body += Assign(thread, kvars.thread_id % (length // min(factors)))
 
         #
         # transform
@@ -577,18 +560,16 @@ class StockhamKernelUWide(StockhamKernel):
 
             body += LineBreak()
             body += CommentLines(f'pass {npass}')
-
-            body += LineBreak()
             body += SyncThreads()
-            body += LineBreak()
 
+            body += LineBreak()
             body += CommentLines('load lds')
             for w in range(width):
-                idx = offset_lds + thread + length // width * w
+                idx = kvars.offset_lds + thread + length // width * w
                 body += Assign(R[w], X[idx])
-            body += LineBreak()
 
             if npass > 0:
+                body += LineBreak()
                 body += CommentLines('twiddle')
                 for w in range(1, width):
                     tidx = cumheight - 1 + w - 1 + (width - 1) * B(thread % cumheight)
@@ -596,29 +577,29 @@ class StockhamKernelUWide(StockhamKernel):
                     body += Assign(t.x, W.x * R[w].x - W.y * R[w].y)
                     body += Assign(t.y, W.y * R[w].x + W.x * R[w].y)
                     body += Assign(R[w], t)
-                body += LineBreak()
 
+            body += LineBreak()
             body += CommentLines('butterfly')
             body += Call(name=f'FwdRad{width}B1',
                          arguments=ArgumentList(*[R[w].address() for w in range(width)]))
-            body += LineBreak()
 
             if npass == len(factors) - 1:
                 body += self.tiling.large_twiddle_multiplication()
 
+            body += LineBreak()
             body += CommentLines('store lds')
             body += SyncThreads()
             stmts = StatementList()
             for w in range(width):
-                idx = offset_lds + B(thread / cumheight) * (width * cumheight) + thread % cumheight + w * cumheight
+                idx = kvars.offset_lds + B(thread / cumheight) * (width * cumheight) + thread % cumheight + w * cumheight
                 stmts += Assign(X[idx], R[w])
             body += If(thread < length // width, stmts)
             body += LineBreak()
 
         body += LineBreak()
 
-        template_list=TemplateList(scalar_type, sb) + self.tiling.templates()
-        argument_list=ArgumentList(Z, X, T, stride, offset, offset_lds) + self.tiling.arguments()
+        template_list=TemplateList(kvars.scalar_type, kvars.sb) + self.tiling.templates()
+        argument_list=ArgumentList(X, T, kvars.stride0, kvars.offset_lds) + self.tiling.arguments()
         return Function(f'forward_length{length}_{self.tiling.name}_device',
                         arguments=argument_list,
                         templates=template_list,
@@ -637,46 +618,35 @@ class StockhamKernelWide(StockhamKernel):
         return max(self.factors)
 
     def generate_device_function(self, **kwargs):
-
         factors = self.factors
+        length = product(factors)
+        params = get_launch_params(factors, **kwargs)
+
         tiling = self.tiling
         length = product(factors)
 
-        # template params
-        Ttwd_large  = Variable('Ttwd_large', 'bool')
-        scalar_type = Variable('scalar_type', 'typename')
-        ltwd_base   = Variable('LTBase', 'size_t')
-        sb          = Variable('sb', 'StrideBin')
+        kvars, kwvars = common_variables(length, params)
 
-        # arguments
-        Z           = Variable('buf', 'scalar_type', array=True)
-        X           = Variable('lds', 'scalar_type', array=True)
-        T           = Variable('twiddles', 'const scalar_type', array=True)
-        stride      = Variable('stride', 'size_t')
-        offset      = Variable('offset', 'size_t')
-        offset_lds  = Variable('offset_lds', 'unsigned int')
-        cb_args     = get_callback_args()
-
-        # locals
-        thread    = Variable('thread', 'int')
-        thread_id = Variable('threadIdx.x', 'int')
-        W         = Variable('W', 'scalar_type')
-        t         = Variable('t', 'scalar_type')
-        R         = Variable('R', 'scalar_type', 2*max(factors))
+        X      = Variable('lds', 'scalar_type', array=True)
+        T      = Variable('twiddles', 'const scalar_type', array=True)
+        thread = Variable('thread', 'int')
+        W      = Variable('W', 'scalar_type')
+        t      = Variable('t', 'scalar_type')
+        R      = Variable('R', 'scalar_type', 2*max(factors))
 
         height0 = length // max(factors)
 
         def load_lds():
             stmts = StatementList()
-            stmts += Assign(thread, thread_id % height0 + nsubpass * height0)
+            stmts += Assign(thread, kvars.thread_id % height0 + nsubpass * height0)
             for w in range(width):
-                idx = offset_lds + thread + length//width * w
+                idx = kvars.offset_lds + thread + length//width * w
                 stmts += Assign(R[nsubpass*width+w], X[idx])
             return stmts
 
         def twiddle():
             stmts = StatementList()
-            stmts += Assign(thread, thread_id % height0 + nsubpass * height0)
+            stmts += Assign(thread, kvars.thread_id % height0 + nsubpass * height0)
             for w in range(1, width):
                 tidx = cumheight - 1 + w - 1 + (width - 1) * B(thread % cumheight)
                 ridx = nsubpass*width + w
@@ -694,10 +664,10 @@ class StockhamKernelWide(StockhamKernel):
 
         def store_lds():
             stmts = StatementList()
-            stmts += Assign(thread, thread_id % height0 + nsubpass * height0)
+            stmts += Assign(thread, kvars.thread_id % height0 + nsubpass * height0)
             stmts += LineBreak()
             for w in range(width):
-                idx = offset_lds + B(thread / cumheight) * (width * cumheight) + thread % cumheight + w * cumheight
+                idx = kvars.offset_lds + B(thread / cumheight) * (width * cumheight) + thread % cumheight + w * cumheight
                 stmts += Assign(X[idx], R[nsubpass*width+w])
             stmts += LineBreak()
             return stmts
@@ -706,9 +676,8 @@ class StockhamKernelWide(StockhamKernel):
         def add_work(codelet):
             if nsubpasses == 1 or nsubpass < nsubpasses - 1:
                 return codelet()
-            needs_work = thread_id % height0 + nsubpass * height0 < length // width
+            needs_work = kvars.thread_id % height0 + nsubpass * height0 < length // width
             return If(needs_work, codelet())
-
 
         body = StatementList()
         body += Declarations(thread, R, W, t)
@@ -730,7 +699,6 @@ class StockhamKernelWide(StockhamKernel):
                 body += SyncThreads()
                 body += LineBreak()
 
-
             body += CommentLines('load lds')
             for nsubpass in range(nsubpasses):
                 body += add_work(load_lds)
@@ -751,8 +719,8 @@ class StockhamKernelWide(StockhamKernel):
 
             body += LineBreak()
 
-        template_list=TemplateList(scalar_type, sb) + tiling.templates()
-        argument_list=ArgumentList(Z, X, T, stride, offset, offset_lds) + tiling.arguments()
+        template_list=TemplateList(kvars.scalar_type, kvars.sb) + tiling.templates()
+        argument_list=ArgumentList(X, T, kvars.stride0, kvars.offset_lds) + tiling.arguments()
         # if tiling == Tiling.cc:
         #     template_list += TemplateList(Ttwd_large, ltwd_base)
         #     argument_list += ArgumentList(twd_large, trans_local)
