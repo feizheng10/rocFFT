@@ -28,7 +28,8 @@ from generator import (ArgumentList, BaseNode, Call, CommentBlock, ExternC, Func
                        LineBreak, Map, Pragma, StatementList, Variable, name_args, format_and_write)
 
 
-import stockham
+#import stockham
+import stockham2 as stockham
 
 
 #
