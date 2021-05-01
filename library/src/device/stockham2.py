@@ -78,8 +78,9 @@ def get_callback_args():
         Variable('store_cb_data', 'void', array=True, restrict=True)])
 
 
-def common_variables(length, params):
+def common_variables(length, params, nregisters):
     """Return namespace of common/frequent variables used in Stockham kernels."""
+    # AUDIT THESE
     kvars = NS(
         # templates
         scalar_type = Variable('scalar_type', 'typename'),
@@ -97,7 +98,8 @@ def common_variables(length, params):
         stride      = Variable('stride', 'const size_t', array=True, restrict=True),
         nbatch      = Variable('nbatch', 'const size_t'),
         # locals
-        lds        = Variable('lds', '__shared__ scalar_type', size=length * params.transforms_per_block),
+        lds        = Variable('lds', 'scalar_type', size=length * params.transforms_per_block,
+                              array=True, restrict=True, shared=True),
         block_id   = Variable('blockIdx.x'),
         thread_id  = Variable('threadIdx.x'),
         thread     = Variable('thread', 'size_t'),
@@ -106,6 +108,11 @@ def common_variables(length, params):
         batch      = Variable('batch', 'size_t'),
         transform  = Variable('transform', 'size_t'),
         stride0    = Variable('stride0', 'const size_t'),
+        # device
+        T      = Variable('twiddles', 'const scalar_type', array=True),
+        W      = Variable('W', 'scalar_type'),
+        t      = Variable('t', 'scalar_type'),
+        R      = Variable('R', 'scalar_type', size=nregisters),
     )
     return kvars, kvars.__dict__
 
@@ -362,6 +369,55 @@ class StockhamTilingCR(StockhamTiling):
 
 
 #
+# Kernel helpers
+#
+
+def load_lds(width=None, height=None, spass=0,
+             thread=None, R=None, lds=None, offset_lds=None, **kwargs):
+    """Load registers 'R' from LDS 'X'."""
+    stmts = StatementList()
+    for w in range(width):
+        idx = offset_lds + thread + w * height
+        stmts += Assign(R[spass * width + w], lds[idx])
+    stmts += LineBreak()
+    return stmts
+
+
+def twiddle(width=None, cumheight=None, spass=0,
+            thread=None, W=None, t=None, twiddles=None, R=None, **kwargs):
+    """Apply twiddles from 'T' to registers 'R'."""
+    stmts = StatementList()
+    for w in range(1, width):
+        tidx = cumheight - 1 + w - 1 + (width - 1) * B(thread % cumheight)
+        ridx = spass * width + w
+        stmts += Assign(W, twiddles[tidx])
+        stmts += Assign(t.x, W.x * R[ridx].x - W.y * R[ridx].y)
+        stmts += Assign(t.y, W.y * R[ridx].x + W.x * R[ridx].y)
+        stmts += Assign(R[ridx], t)
+    stmts += LineBreak()
+    return stmts
+
+
+def butterfly(width=None, R=None, spass=0, **kwargs):
+    """Apply butterly to registers 'R'."""
+    stmts = StatementList()
+    stmts += Call(name=f'FwdRad{width}B1',
+                  arguments=ArgumentList(*[R[spass * width + w].address() for w in range(width)]))
+    stmts += LineBreak()
+    return stmts
+
+
+def store_lds(width=None, cumheight=None, spass=0,
+              lds=None, R=None, thread=None, offset_lds=None, **kwargs):
+    """Store registers 'R' to LDS 'X'."""
+    stmts = StatementList()
+    for w in range(width):
+        idx = offset_lds + B(thread / cumheight) * (width * cumheight) + thread % cumheight + w * cumheight
+        stmts += Assign(lds[idx], R[spass * width + w])
+    stmts += LineBreak()
+    return stmts
+
+#
 # Stockham kernels
 #
 
@@ -388,7 +444,7 @@ class StockhamKernel:
         use_3steps = kwargs.get('3steps')
         params     = get_launch_params(self.factors, **kwargs)
 
-        kvars, kwvars = common_variables(self.length, params)
+        kvars, kwvars = common_variables(self.length, params, self.nregisters)
         cb_args = get_callback_args()
 
         body = StatementList()
@@ -452,6 +508,10 @@ class StockhamKernelUWide(StockhamKernel):
     """
 
     @property
+    def nregisters(self):
+        return max(self.factors)
+
+    @property
     def width(self):
         return min(self.factors)
 
@@ -460,20 +520,12 @@ class StockhamKernelUWide(StockhamKernel):
         length = product(factors)
         params = get_launch_params(factors, **kwargs)
 
-        kvars, kwvars = common_variables(length, params)
-
-        X      = Variable('lds', 'scalar_type', array=True)
-        thread = kvars.thread
-        T      = kvars.twiddles
-        W      = Variable('W', 'scalar_type')
-        t      = Variable('t', 'scalar_type')
-        R      = Variable('R', 'scalar_type', max(factors))
+        kvars, kwvars = common_variables(length, params, self.nregisters)
 
         body = StatementList()
-        body += Declarations(thread, R, W, t)
-
+        body += Declarations(kvars.thread, kvars.R, kvars.W, kvars.t)
         body += LineBreak()
-        body += Assign(thread, kvars.thread_id % (length // min(factors)))
+        body += Assign(kvars.thread, kvars.thread_id % (length // min(factors)))
 
         #
         # transform
@@ -485,45 +537,26 @@ class StockhamKernelUWide(StockhamKernel):
             body += CommentLines(f'pass {npass}')
             body += SyncThreads()
 
-            body += LineBreak()
-            body += CommentLines('load lds')
-            for w in range(width):
-                idx = kvars.offset_lds + thread + length // width * w
-                body += Assign(R[w], X[idx])
+            body += load_lds(width=width, height=length//width, **kwvars)
 
             if npass > 0:
-                body += LineBreak()
-                body += CommentLines('twiddle')
                 for w in range(1, width):
-                    tidx = cumheight - 1 + w - 1 + (width - 1) * B(thread % cumheight)
-                    body += Assign(W, T[tidx])
-                    body += Assign(t.x, W.x * R[w].x - W.y * R[w].y)
-                    body += Assign(t.y, W.y * R[w].x + W.x * R[w].y)
-                    body += Assign(R[w], t)
+                    body += twiddle(width=width, cumheight=cumheight, **kwvars)
 
-            body += LineBreak()
-            body += CommentLines('butterfly')
-            body += Call(name=f'FwdRad{width}B1',
-                         arguments=ArgumentList(*[R[w].address() for w in range(width)]))
+            body += butterfly(width=width, **kwvars)
 
             if npass == len(factors) - 1:
-                body += self.tiling.large_twiddle_multiplication(width, cumheight, W=W, t=t, R=R, **kwvars)
+                body += self.tiling.large_twiddle_multiplication(width, cumheight, **kwvars)
 
             body += LineBreak()
             body += CommentLines('store lds')
             body += SyncThreads()
-            stmts = StatementList()
-            for w in range(width):
-                idx = kvars.offset_lds + B(thread / cumheight) * (width * cumheight) + thread % cumheight + w * cumheight
-                stmts += Assign(X[idx], R[w])
-            body += If(thread < length // width, stmts)
-            body += LineBreak()
-
-        body += LineBreak()
+            body += If(kvars.thread < length // width,
+                       store_lds(width=width, cumheight=cumheight, **kwvars))
 
         templates = TemplateList(kvars.scalar_type, kvars.sb)
         templates = self.tiling.add_templates(templates, **kwvars)
-        arguments = ArgumentList(X, T, kvars.stride0, kvars.offset_lds)
+        arguments = ArgumentList(kvars.lds, kvars.twiddles, kvars.stride0, kvars.offset_lds)
         arguments = self.tiling.add_device_arguments(arguments, **kwvars)
         return Function(f'forward_length{length}_{self.tiling.name}_device',
                         arguments=arguments,
@@ -539,6 +572,10 @@ class StockhamKernelWide(StockhamKernel):
     """
 
     @property
+    def nregisters(self):
+        return 2 * max(self.factors)
+
+    @property
     def width(self):
         return max(self.factors)
 
@@ -550,7 +587,7 @@ class StockhamKernelWide(StockhamKernel):
         tiling = self.tiling
         length = product(factors)
 
-        kvars, kwvars = common_variables(length, params)
+        kvars, kwvars = common_variables(length, params, self.nregisters)
 
         X      = Variable('lds', 'scalar_type', array=True)
         T      = Variable('twiddles', 'const scalar_type', array=True)
