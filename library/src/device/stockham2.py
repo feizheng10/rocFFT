@@ -35,7 +35,7 @@ def product(factors):
 
 def quantize(n, granularity):
     """Round up a number 'n' to the next integer multiple of 'granularity'"""
-    return granularity * ((n-1)//granularity + 1)
+    return granularity * ((n - 1) // granularity + 1)
 
 
 def get_launch_params(factors, flavour='uwide', bytes_per_element=16, lds_byte_limit=32 * 1024, threads_per_block=256, **kwargs):
@@ -99,7 +99,7 @@ def common_variables(length, params):
         thread_id  = Variable('threadIdx.x'),
         thread     = Variable('thread', 'size_t'),
         offset     = Variable('offset', 'size_t', value=0),
-        offset_lds = Variable('offset_lds', 'unsigned int'), # lds address space is limited to 64K
+        offset_lds = Variable('offset_lds', 'unsigned int'),
         batch      = Variable('batch', 'size_t'),
         transform  = Variable('transform', 'size_t'),
         stride0    = Variable('stride0', 'const size_t'),
@@ -159,11 +159,11 @@ class StockhamTilingRR(StockhamTiling):
         stmts += Assign(transform, block_id * params.transforms_per_block + thread_id / (length // width))
         stmts += Assign(remaining, transform)
         stmts += For(InlineAssign(d, 1), d < dim, Increment(d),
-                    StatementList(
-                        Assign(plength, plength * lengths[d]),
-                        Assign(i_d, remaining % lengths[d]),
-                        Assign(remaining, remaining / lengths[d]),
-                        Assign(offset, offset + i_d * stride[d])))
+                     StatementList(
+                         Assign(plength, plength * lengths[d]),
+                         Assign(i_d, remaining % lengths[d]),
+                         Assign(remaining, remaining / lengths[d]),
+                         Assign(offset, offset + i_d * stride[d])))
         stmts += Assign(batch, transform / plength)
         stmts += Assign(offset, offset + batch * stride[dim])
         stmts += Assign(offset_lds, length * B(transform % params.transforms_per_block))
@@ -181,11 +181,10 @@ class StockhamTilingRR(StockhamTiling):
             stmts += Assign(lds[offset_lds + idx], LoadGlobal(buf, offset + B(idx) * stride0))
         return stmts
 
-
     def store_to_global(self, length, width, params,
-                         thread=None, thread_id=None, stride0=None,
-                         buf=None, offset=None, lds=None, offset_lds=None,
-                         **kwargs):
+                        thread=None, thread_id=None, stride0=None,
+                        buf=None, offset=None, lds=None, offset_lds=None,
+                        **kwargs):
         stmts = StatementList()
         for w in range(width):
             idx = thread + w * (length // width)
@@ -207,16 +206,13 @@ class StockhamTilingCC(StockhamTiling):
         self.i_1 = Variable('i_1', 'size_t')  # tile index
         self.length_1 = Variable('length_1', 'size_t')
 
-
     def templates(self):
         """Return list of extra template arguments."""
         return TemplateList(self.apply_large_twiddle, self.large_twiddle_base)
 
-
     def arguments(self):
         """Return list of extra function arguments."""
         return ArgumentList(self.large_twiddles, self.trans_local)
-
 
     def large_twiddle_multiplication(self, width, cumheight,
                                      W=None, t=None, R=None,
@@ -233,7 +229,6 @@ class StockhamTilingCC(StockhamTiling):
             stmts += Assign(R[w], t)
         return If(self.apply_large_twiddle, stmts)
 
-
     def calculate_offsets(self, length, width, params,
                           transform=None, dim=None,
                           block_id=None, thread_id=None, lengths=None, stride=None, offset=None, batch=None,
@@ -241,7 +236,7 @@ class StockhamTilingCC(StockhamTiling):
                           **kwargs):
 
         ltwd_id = Variable('ltwd_id', 'size_t', value=thread_id)
-        ltwd_entries  = Multiply(B(ShiftLeft(1, self.large_twiddle_base)), 3) # (1 << LTBase) * 3
+        ltwd_entries  = Multiply(B(ShiftLeft(1, self.large_twiddle_base)), 3)
         ltwdLDS_cond  = And(self.apply_large_twiddle, Less(self.large_twiddle_base, 8))
 
         large_twd_lds = Variable('large_twd_lds', '__shared__ scalar_type', size=Ternary(ltwdLDS_cond, ltwd_entries, 0))
@@ -252,15 +247,9 @@ class StockhamTilingCC(StockhamTiling):
                     StatementList(
                         Declaration(ltwd_id.name, ltwd_id.type, value=ltwd_id.value),
                         While(Less(ltwd_id, ltwd_entries),
-                            StatementList(
-                                Assign(large_twd_lds[ltwd_id], self.large_twiddles[ltwd_id]),
-                                AddAssign(ltwd_id, params.threads_per_block)
-                            )
-                        )
-                    )
-                )
-
-
+                              StatementList(
+                                  Assign(large_twd_lds[ltwd_id], self.large_twiddles[ltwd_id]),
+                                  AddAssign(ltwd_id, params.threads_per_block)))))
         d         = Variable('d', 'int')
         i_d       = Variable('index_along_d', 'size_t')
         remaining = Variable('remaining', 'size_t')
@@ -268,8 +257,8 @@ class StockhamTilingCC(StockhamTiling):
 
         stmts += LineBreak()
         stmts += CommentLines('calculate offset for each tile:',
-                            '  i_1      now means index of the tile along dim1',
-                            '  length_1 now means number of tiles along dim1')
+                              '  i_1      now means index of the tile along dim1',
+                              '  length_1 now means number of tiles along dim1')
         stmts += Declarations(self.i_1, self.length_1, plength, remaining, d, i_d)
         stmts += Assign(self.length_1, B(lengths[1] - 1) / params.transforms_per_block + 1)
         stmts += Assign(plength, self.length_1)
@@ -277,19 +266,17 @@ class StockhamTilingCC(StockhamTiling):
         stmts += Assign(remaining, block_id / self.length_1)
         stmts += Assign(offset, self.i_1 * params.transforms_per_block * stride[1])
         stmts += For(InlineAssign(d, 2), d < dim, Increment(d),
-                    StatementList(
-                        Assign(plength, plength * lengths[d]),
-                        Assign(i_d, remaining % lengths[d]),
-                        Assign(remaining, remaining / lengths[d]),
-                        Assign(offset, offset + i_d * stride[d])))
+                     StatementList(
+                         Assign(plength, plength * lengths[d]),
+                         Assign(i_d, remaining % lengths[d]),
+                         Assign(remaining, remaining / lengths[d]),
+                         Assign(offset, offset + i_d * stride[d])))
         stmts += LineBreak()
         stmts += Assign(transform, self.i_1 * params.transforms_per_block + thread_id / (length // width))
         stmts += Assign(batch, block_id / plength)
         stmts += Assign(offset, offset + batch * stride[dim])
         stmts += Assign(offset_lds, length * B(transform % params.transforms_per_block))
-
         return stmts
-
 
     def load_from_global(self, length, width, params,
                          buf=None, offset=None, lds=None,
@@ -306,22 +293,21 @@ class StockhamTilingCC(StockhamTiling):
         stmts = StatementList()
         stmts += Declarations(edge, tid0, tid1)
         stmts += ConditionalAssign(edge,
-                                   Greater(B(self.i_1+1)*params.transforms_per_block, lengths[1]),
+                                   Greater(B(self.i_1 + 1) * params.transforms_per_block, lengths[1]),
                                    'true', 'false')
-        stmts += Assign(tid1, thread_id % stripmine_w) # tid0 walks the columns; tid1 walks the rows
+        stmts += Assign(tid1, thread_id % stripmine_w)  # tid0 walks the columns; tid1 walks the rows
         stmts += Assign(tid0, thread_id / stripmine_w)
         offset_tile_rbuf = lambda i : tid1 * stride[1]  + B(tid0 + i * stripmine_h) * stride0
         offset_tile_wlds = lambda i : tid1 * stride_lds + B(tid0 + i * stripmine_h) * 1
         pred, tmp_stmts = StatementList(), StatementList()
         pred = self.i_1 * params.transforms_per_block + tid1 < lengths[1]
-        for i in range(length//stripmine_h):
+        for i in range(length // stripmine_h):
             tmp_stmts += Assign(lds[offset_tile_wlds(i)], LoadGlobal(buf, offset + offset_tile_rbuf(i)))
 
         stmts += If(Not(edge), tmp_stmts)
         stmts += If(edge, If(pred, tmp_stmts))
 
         return stmts
-
 
     def store_to_global(self, length, width, params,
                         stride=None, stride0=None, lengths=None, buf=None, offset=None, lds=None,
@@ -341,7 +327,7 @@ class StockhamTilingCC(StockhamTiling):
         offset_tile_rlds = offset_tile_wlds
         pred, tmp_stmts = StatementList(), StatementList()
         pred = self.i_1 * params.transforms_per_block + tid1 < lengths[1]
-        for i in range(length//stripmine_h):
+        for i in range(length // stripmine_h):
             tmp_stmts += StoreGlobal(buf, offset + offset_tile_wbuf(i), lds[offset_tile_rlds(i)])
         stmts += If(Not(edge), tmp_stmts)
         stmts += If(edge, If(pred, tmp_stmts))
@@ -349,9 +335,9 @@ class StockhamTilingCC(StockhamTiling):
         return stmts
 
 
-
 class StockhamTilingRC(StockhamTiling):
     pass
+
 
 class StockhamTilingCR(StockhamTiling):
     pass
@@ -370,16 +356,13 @@ class StockhamKernel:
         self.scheme = scheme
         self.tiling = tiling
 
-
     @property
     def width(self):
         return self.length // self.height
 
-
     def generate_device_function(self):
         """Stockham device function."""
         pass
-
 
     def generate_global_function(self, **kwargs):
         """Global Stockham function."""
@@ -440,9 +423,6 @@ class StockhamKernel:
                         body=body)
 
 
-
-
-
 class StockhamKernelUWide(StockhamKernel):
     """Stockham ultra-wide kernel.
 
@@ -452,7 +432,6 @@ class StockhamKernelUWide(StockhamKernel):
     @property
     def height(self):
         return max(self.factors)
-
 
     def generate_device_function(self, **kwargs):
         factors = self.factors
@@ -554,7 +533,7 @@ class StockhamKernelWide(StockhamKernel):
         thread = Variable('thread', 'int')
         W      = Variable('W', 'scalar_type')
         t      = Variable('t', 'scalar_type')
-        R      = Variable('R', 'scalar_type', 2*max(factors))
+        R      = Variable('R', 'scalar_type', 2 * max(factors))
 
         height0 = length // max(factors)
 
@@ -562,8 +541,8 @@ class StockhamKernelWide(StockhamKernel):
             stmts = StatementList()
             stmts += Assign(thread, kvars.thread_id % height0 + nsubpass * height0)
             for w in range(width):
-                idx = kvars.offset_lds + thread + length//width * w
-                stmts += Assign(R[nsubpass*width+w], X[idx])
+                idx = kvars.offset_lds + thread + length // width * w
+                stmts += Assign(R[nsubpass * width + w], X[idx])
             return stmts
 
         def twiddle():
@@ -571,7 +550,7 @@ class StockhamKernelWide(StockhamKernel):
             stmts += Assign(thread, kvars.thread_id % height0 + nsubpass * height0)
             for w in range(1, width):
                 tidx = cumheight - 1 + w - 1 + (width - 1) * B(thread % cumheight)
-                ridx = nsubpass*width + w
+                ridx = nsubpass * width + w
                 stmts += Assign(W, T[tidx])
                 stmts += Assign(t.x, W.x * R[ridx].x - W.y * R[ridx].y)
                 stmts += Assign(t.y, W.y * R[ridx].x + W.x * R[ridx].y)
@@ -581,7 +560,7 @@ class StockhamKernelWide(StockhamKernel):
         def butterfly():
             stmts = StatementList()
             stmts += Call(name=f'FwdRad{width}B1',
-                        arguments=ArgumentList(*[R[nsubpass*width+w].address() for w in range(width)]))
+                          arguments=ArgumentList(*[R[nsubpass * width + w].address() for w in range(width)]))
             return stmts
 
         def store_lds():
@@ -590,10 +569,9 @@ class StockhamKernelWide(StockhamKernel):
             stmts += LineBreak()
             for w in range(width):
                 idx = kvars.offset_lds + B(thread / cumheight) * (width * cumheight) + thread % cumheight + w * cumheight
-                stmts += Assign(X[idx], R[nsubpass*width+w])
+                stmts += Assign(X[idx], R[nsubpass * width + w])
             stmts += LineBreak()
             return stmts
-
 
         def add_work(codelet):
             if nsubpasses == 1 or nsubpass < nsubpasses - 1:
@@ -744,7 +722,7 @@ def stockham_launch(factors, **kwargs):
     body += Declarations(nblocks)
     body += Assign(nblocks, B(nbatch + (params.transforms_per_block - 1)) / params.transforms_per_block)
     body += Call(f'forward_length{length}_SBRR',
-                 arguments = ArgumentList(twiddles, 1, kargs, kargs+1, nbatch, inout, null, null, 0, null, null),
+                 arguments = ArgumentList(twiddles, 1, kargs, kargs + 1, nbatch, inout, null, null, 0, null, null),
                  templates = TemplateList(scalar_type, sb, cbtype),
                  launch_params = ArgumentList(nblocks, params.threads_per_block))
 
@@ -784,12 +762,12 @@ def stockham(length, **kwargs):
     kwargs.pop('factors')
 
     # assert that factors multiply out to the length
-    if functools.reduce(lambda x, y: x*y, factors) != length:
+    if functools.reduce(lambda x, y: x * y, factors) != length:
         raise RuntimeError("invalid factors {} for length {}".format(factors, length))
 
     defualt_3steps = {
-        'sp':'false',
-        'dp':'false'
+        'sp': 'false',
+        'dp': 'false'
     }
     kwargs['3steps'] = kwargs.get('use_3steps_large_twd', defualt_3steps)
 
