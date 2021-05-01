@@ -208,30 +208,28 @@ class StockhamTilingCC(StockhamTiling):
     name = 'SBCC'
 
     def __init__(self):
-        self.apply_large_twiddle = Variable('Ttwd_large', 'bool')
-        self.large_twiddle_base  = Variable('LTBase', 'size_t', value=8)
-        self.large_twiddles      = Variable('twd_large', 'const scalar_type', array=True)
+        self.apply_large_twiddle = Variable('apply_large_twiddle', 'bool')
+        self.large_twiddle_base  = Variable('large_twiddle_base', 'size_t', value=8)
+        self.large_twiddles      = Variable('large_twiddles', 'const scalar_type', array=True)
         self.trans_local         = Variable('trans_local', 'size_t')
-
-        self.i_1 = Variable('i_1', 'size_t')  # tile index
-        self.length_1 = Variable('length_1', 'size_t')
+        self.tile_index          = Variable('tile_index', 'size_t')
+        self.tile_length         = Variable('tile_length', 'size_t')
+        self.edge                = Variable('edge', 'bool')
+        self.tid1                = Variable('tid1', 'size_t')
+        self.tid0                = Variable('tid0', 'size_t')
 
     def add_templates(self, tlist, **kwargs):
-        """Return list of extra template arguments."""
         return tlist + TemplateList(self.apply_large_twiddle, self.large_twiddle_base)
 
     def add_global_arguments(self, alist, **kwargs):
-        """Return new function arguments."""
         nargs = list(alist.args)
         nargs.insert(1, self.large_twiddles)
         return ArgumentList(*nargs)
 
     def add_device_arguments(self, alist, **kwargs):
-        """Return new function arguments."""
         return alist + ArgumentList(self.large_twiddles, self.trans_local)
 
     def add_device_call_arguments(self, alist, transform=None, **kwargs):
-        """Return new function arguments."""
         which = Ternary(And(self.apply_large_twiddle, self.large_twiddle_base < 8),
                         self.large_twd_lds, self.large_twiddles)
         return alist + ArgumentList(which, transform)
@@ -258,57 +256,56 @@ class StockhamTilingCC(StockhamTiling):
                           **kwargs):
 
         ltwd_id = Variable('ltwd_id', 'size_t', value=thread_id)
-        ltwd_entries  = Multiply(B(ShiftLeft(1, self.large_twiddle_base)), 3)
-        ltwdLDS_cond  = And(self.apply_large_twiddle, Less(self.large_twiddle_base, 8))
+        ltwd_entries = Multiply(B(ShiftLeft(1, self.large_twiddle_base)), 3)
+        ltwd_in_lds = And(self.apply_large_twiddle, Less(self.large_twiddle_base, 8))
 
-        large_twd_lds = Variable('large_twd_lds', '__shared__ scalar_type', size=Ternary(ltwdLDS_cond, ltwd_entries, 0))
-        self.large_twd_lds = large_twd_lds
+        self.large_twd_lds = Variable('large_twd_lds', '__shared__ scalar_type',
+                                      size=Ternary(ltwd_in_lds, ltwd_entries, 0))
 
         stmts = StatementList()
-        stmts += Declarations(large_twd_lds)
-        stmts += If(ltwdLDS_cond,
+        stmts += Declarations(self.tile_index, self.tile_length, self.large_twd_lds)
+        stmts += If(ltwd_in_lds,
                     StatementList(
                         Declaration(ltwd_id.name, ltwd_id.type, value=ltwd_id.value),
                         While(Less(ltwd_id, ltwd_entries),
                               StatementList(
-                                  Assign(large_twd_lds[ltwd_id], self.large_twiddles[ltwd_id]),
+                                  Assign(self.large_twd_lds[ltwd_id], self.large_twiddles[ltwd_id]),
                                   AddAssign(ltwd_id, params.threads_per_block)))))
-        d         = Variable('d', 'int')
-        i_d       = Variable('index_along_d', 'size_t')
-        remaining = Variable('remaining', 'size_t')
-        plength   = Variable('plength', 'size_t', value=1)
+
+        d             = Variable('d', 'int')
+        index_along_d = Variable('index_along_d', 'size_t')
+        remaining     = Variable('remaining', 'size_t')
+        plength       = Variable('plength', 'size_t', value=1)
 
         stmts += LineBreak()
         stmts += CommentLines('calculate offset for each tile:',
-                              '  i_1      now means index of the tile along dim1',
-                              '  length_1 now means number of tiles along dim1')
-        stmts += Declarations(self.i_1, self.length_1, plength, remaining, d, i_d)
-        stmts += Assign(self.length_1, B(lengths[1] - 1) / params.transforms_per_block + 1)
-        stmts += Assign(plength, self.length_1)
-        stmts += Assign(self.i_1, block_id % self.length_1)
-        stmts += Assign(remaining, block_id / self.length_1)
-        stmts += Assign(offset, self.i_1 * params.transforms_per_block * stride[1])
-        stmts += For(InlineAssign(d, 2), d < dim, Increment(d),
+                              '  tile_index  now means index of the tile along dim1',
+                              '  tile_length now means number of tiles along dim1')
+        stmts += Declarations(plength, remaining, index_along_d)
+        stmts += Assign(self.tile_length, B(lengths[1] - 1) / params.transforms_per_block + 1)
+        stmts += Assign(plength, self.tile_length)
+        stmts += Assign(self.tile_index, block_id % self.tile_length)
+        stmts += Assign(remaining, block_id / self.tile_length)
+        stmts += Assign(offset, self.tile_index * params.transforms_per_block * stride[1])
+        stmts += For(d.inline(2), d < dim, Increment(d),
                      StatementList(
                          Assign(plength, plength * lengths[d]),
-                         Assign(i_d, remaining % lengths[d]),
+                         Assign(index_along_d, remaining % lengths[d]),
                          Assign(remaining, remaining / lengths[d]),
-                         Assign(offset, offset + i_d * stride[d])))
+                         Assign(offset, offset + index_along_d * stride[d])))
         stmts += LineBreak()
-        stmts += Assign(transform, self.i_1 * params.transforms_per_block + thread_id / params.threads_per_transform)
+        stmts += Assign(transform, self.tile_index * params.transforms_per_block + thread_id / params.threads_per_transform)
         stmts += Assign(batch, block_id / plength)
         stmts += Assign(offset, offset + batch * stride[dim])
         stmts += Assign(offset_lds, length * B(transform % params.transforms_per_block))
+
         return stmts
 
     def load_from_global(self, length, width, params,
                          buf=None, offset=None, lds=None,
                          lengths=None, thread_id=None, stride=None, stride0=None, **kwargs):
 
-        edge = Variable('edge', 'bool')
-        tid1 = Variable('tid1', 'size_t')
-        tid0 = Variable('tid0', 'size_t')
-
+        edge, tid0, tid1 = self.edge, self.tid0, self.tid1
         stripmine_w   = params.transforms_per_block
         stripmine_h   = params.threads_per_block // stripmine_w
         stride_lds    = length + kwargs.get('lds_padding', 0)  # XXX
@@ -316,14 +313,14 @@ class StockhamTilingCC(StockhamTiling):
         stmts = StatementList()
         stmts += Declarations(edge, tid0, tid1)
         stmts += ConditionalAssign(edge,
-                                   Greater(B(self.i_1 + 1) * params.transforms_per_block, lengths[1]),
+                                   Greater(B(self.tile_index + 1) * params.transforms_per_block, lengths[1]),
                                    'true', 'false')
         stmts += Assign(tid1, thread_id % stripmine_w)  # tid0 walks the columns; tid1 walks the rows
         stmts += Assign(tid0, thread_id / stripmine_w)
         offset_tile_rbuf = lambda i : tid1 * stride[1]  + B(tid0 + i * stripmine_h) * stride0
         offset_tile_wlds = lambda i : tid1 * stride_lds + B(tid0 + i * stripmine_h) * 1
         pred, tmp_stmts = StatementList(), StatementList()
-        pred = self.i_1 * params.transforms_per_block + tid1 < lengths[1]
+        pred = self.tile_index * params.transforms_per_block + tid1 < lengths[1]
         for i in range(length // stripmine_h):
             tmp_stmts += Assign(lds[offset_tile_wlds(i)], LoadGlobal(buf, offset + offset_tile_rbuf(i)))
 
@@ -336,9 +333,7 @@ class StockhamTilingCC(StockhamTiling):
                         stride=None, stride0=None, lengths=None, buf=None, offset=None, lds=None,
                         **kwargs):
 
-        edge = Variable('edge', 'bool')
-        tid0 = Variable('tid0', 'size_t')
-        tid1 = Variable('tid1', 'size_t')  # XXX add to self
+        edge, tid0, tid1 = self.edge, self.tid0, self.tid1
         stripmine_w   = params.transforms_per_block
         stripmine_h   = params.threads_per_block // stripmine_w
         stride_lds    = length + kwargs.get('lds_padding', 0)  # XXX
@@ -349,7 +344,7 @@ class StockhamTilingCC(StockhamTiling):
         offset_tile_wbuf = offset_tile_rbuf
         offset_tile_rlds = offset_tile_wlds
         pred, tmp_stmts = StatementList(), StatementList()
-        pred = self.i_1 * params.transforms_per_block + tid1 < lengths[1]
+        pred = self.tile_index * params.transforms_per_block + tid1 < lengths[1]
         for i in range(length // stripmine_h):
             tmp_stmts += StoreGlobal(buf, offset + offset_tile_wbuf(i), lds[offset_tile_rlds(i)])
         stmts += If(Not(edge), tmp_stmts)
