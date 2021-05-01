@@ -115,13 +115,21 @@ def common_variables(length, params):
 class StockhamTiling:
     """Base tiling."""
 
-    def templates(self):
+    def add_templates(self, tlist, **kwargs):
         """Return list of extra template arguments."""
-        return TemplateList()
+        return tlist
 
-    def arguments(self, args, **kwargs):
-        """Return new function arguments."""
-        return args
+    def add_global_arguments(self, alist, **kwargs):
+        """Return new function arguments to the global kernel function."""
+        return alist
+
+    def add_device_arguments(self, alist, **kwargs):
+        """Return new function arguments to the device kernel function."""
+        return alist
+
+    def add_device_call_arguments(self, alist, **kwargs):
+        """Return new function arguments for calling the device kernel function."""
+        return alist
 
     def large_twiddle_multiplication(self, *args, **kwargs):
         return StatementList()
@@ -206,21 +214,25 @@ class StockhamTilingCC(StockhamTiling):
         self.i_1 = Variable('i_1', 'size_t')  # tile index
         self.length_1 = Variable('length_1', 'size_t')
 
-    def templates(self):
+    def add_templates(self, tlist, **kwargs):
         """Return list of extra template arguments."""
-        return TemplateList(self.apply_large_twiddle, self.large_twiddle_base)
+        return tlist + TemplateList(self.apply_large_twiddle, self.large_twiddle_base)
 
-    def arguments(self, alist, device=False, device_call=False, transform=None, **kwargs):
+    def add_global_arguments(self, alist, **kwargs):
         """Return new function arguments."""
-        if device:
-            return alist + ArgumentList(self.large_twiddles, self.trans_local)
-        if device_call:
-            which = Ternary(And(self.apply_large_twiddle, self.large_twiddle_base < 8),
-                            self.large_twd_lds, self.large_twiddles)
-            return alist + ArgumentList(which, transform)
         nargs = list(alist.args)
         nargs.insert(1, self.large_twiddles)
         return ArgumentList(*nargs)
+
+    def add_device_arguments(self, alist, **kwargs):
+        """Return new function arguments."""
+        return alist + ArgumentList(self.large_twiddles, self.trans_local)
+
+    def add_device_call_arguments(self, alist, transform=None, **kwargs):
+        """Return new function arguments."""
+        which = Ternary(And(self.apply_large_twiddle, self.large_twiddle_base < 8),
+                        self.large_twd_lds, self.large_twiddles)
+        return alist + ArgumentList(which, transform)
 
     def large_twiddle_multiplication(self, width, cumheight,
                                      W=None, t=None, R=None,
@@ -406,24 +418,26 @@ class StockhamKernel:
 
         body += LineBreak()
         body += CommentLines('transform')
-        template_list = TemplateList(kvars.scalar_type, kvars.sb) + self.tiling.templates()
-        argument_list = ArgumentList(kvars.lds, kvars.twiddles, kvars.stride0, kvars.offset_lds)
-        argument_list = self.tiling.arguments(argument_list, device_call=True, **kwvars)
+        templates = TemplateList(kvars.scalar_type, kvars.sb)
+        templates = self.tiling.add_templates(templates, **kwvars)
+        arguments = ArgumentList(kvars.lds, kvars.twiddles, kvars.stride0, kvars.offset_lds)
+        arguments = self.tiling.add_device_call_arguments(arguments, **kwvars)
         body += Call(f'forward_length{self.length}_{self.tiling.name}_device',
-                     arguments=argument_list, templates=template_list)
+                     arguments=arguments, templates=templates)
 
         body += LineBreak()
         body += CommentLines('store global')
         body += SyncThreads()
         body += self.tiling.store_to_global(self.length, self.width, params, **kwvars)
 
-        template_list = TemplateList(kvars.scalar_type, kvars.sb, kvars.cbtype) + self.tiling.templates()
-        argument_list = ArgumentList(kvars.twiddles, kvars.dim, kvars.lengths, kvars.stride, kvars.nbatch) + cb_args + ArgumentList(kvars.buf)
-        argument_list = self.tiling.arguments(argument_list, device=False, **kwvars)
+        templates = TemplateList(kvars.scalar_type, kvars.sb, kvars.cbtype)
+        templates = self.tiling.add_templates(templates)
+        arguments = ArgumentList(kvars.twiddles, kvars.dim, kvars.lengths, kvars.stride, kvars.nbatch) + cb_args + ArgumentList(kvars.buf)
+        arguments = self.tiling.add_global_arguments(arguments, **kwvars)
         return Function(name=f'forward_length{self.length}_{self.tiling.name}',
                         qualifier=f'__global__ __launch_bounds__({params.threads_per_block})',
-                        templates=template_list,
-                        arguments=argument_list,
+                        templates=templates,
+                        arguments=arguments,
                         meta=NS(factors=self.factors,
                                 length=self.length,
                                 transforms_per_block=params.transforms_per_block,
@@ -510,12 +524,13 @@ class StockhamKernelUWide(StockhamKernel):
 
         body += LineBreak()
 
-        template_list = TemplateList(kvars.scalar_type, kvars.sb) + self.tiling.templates()
-        argument_list = ArgumentList(X, T, kvars.stride0, kvars.offset_lds)
-        argument_list = self.tiling.arguments(argument_list, device=True, **kwvars)
+        templates = TemplateList(kvars.scalar_type, kvars.sb)
+        templates = self.tiling.add_templates(templates, **kwvars)
+        arguments = ArgumentList(X, T, kvars.stride0, kvars.offset_lds)
+        arguments = self.tiling.add_device_arguments(arguments, **kwvars)
         return Function(f'forward_length{length}_{self.tiling.name}_device',
-                        arguments=argument_list,
-                        templates=template_list,
+                        arguments=arguments,
+                        templates=templates,
                         body=body,
                         qualifier='__device__')
 
@@ -631,12 +646,13 @@ class StockhamKernelWide(StockhamKernel):
 
             body += LineBreak()
 
-        template_list = TemplateList(kvars.scalar_type, kvars.sb) + tiling.templates()
-        argument_list = ArgumentList(X, T, kvars.stride0, kvars.offset_lds)
-        argument_list = tiling.arguments(argument_list, device=True, **kwvars)
+        templates = TemplateList(kvars.scalar_type, kvars.sb)
+        templates = tiling.add_templates(templates)
+        arguments = ArgumentList(X, T, kvars.stride0, kvars.offset_lds)
+        arguments = tiling.add_device_arguments(arguments, **kwvars)
         return Function(f'forward_length{length}_{tiling.name}_device',
-                        arguments=argument_list,
-                        templates=template_list,
+                        arguments=arguments,
+                        templates=templates,
                         body=body,
                         qualifier='__device__')
 
