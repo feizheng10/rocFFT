@@ -156,7 +156,7 @@ class StockhamTilingRR(StockhamTiling):
 
         stmts = StatementList()
         stmts += Declarations(remaining, plength, d, i_d)
-        stmts += Assign(transform, block_id * params.transforms_per_block + thread_id / (length // width))
+        stmts += Assign(transform, block_id * params.transforms_per_block + thread_id / params.threads_per_transform)
         stmts += Assign(remaining, transform)
         stmts += For(InlineAssign(d, 1), d < dim, Increment(d),
                      StatementList(
@@ -441,8 +441,8 @@ class StockhamKernelUWide(StockhamKernel):
     """
 
     @property
-    def height(self):
-        return max(self.factors)
+    def width(self):
+        return min(self.factors)
 
     def generate_device_function(self, **kwargs):
         factors = self.factors
@@ -527,7 +527,7 @@ class StockhamKernelWide(StockhamKernel):
     """
 
     @property
-    def height(self):
+    def width(self):
         return max(self.factors)
 
     def generate_device_function(self, **kwargs):
