@@ -71,129 +71,6 @@ def get_callback_args():
     return ArgumentList(*cb_args)
 
 
-def make_variants(kdevice, kglobal):
-    """Given in-place complex-interleaved kernels, create all other variations.
-
-    The ASTs in 'kglobal' and 'kdevice' are assumed to be in-place,
-    complex-interleaved kernels.
-
-    Return out-of-place and planar variations.
-    """
-    op_names = ['buf', 'stride', 'stride0', 'offset']
-
-    def rename(x, pre):
-        if 'forward' in x or 'inverse' in x:
-            return pre + x
-        return x
-
-    def rename_ip(x):
-        return rename_functions(x, lambda n: rename(n, 'ip_'))
-
-    def rename_op(x):
-        return rename_functions(x, lambda n: rename(n, 'op_'))
-
-    kernels = [
-        # in-place, interleaved
-        rename_ip(kdevice),
-        rename_ip(kglobal),
-        # in-place, planar
-        rename_ip(make_planar(kdevice, 'buf')),
-        rename_ip(make_planar(kglobal, 'buf')),
-        # out-of-place, interleaved -> interleaved
-        rename_op(make_out_of_place(kdevice, op_names)),
-        rename_op(make_out_of_place(kglobal, op_names)),
-        # out-of-place, interleaved -> planar
-        rename_op(make_planar(make_out_of_place(kdevice, op_names), 'buf_out')),
-        rename_op(make_planar(make_out_of_place(kglobal, op_names), 'buf_out')),
-        # out-of-place, planar -> interleaved
-        rename_op(make_planar(make_out_of_place(kdevice, op_names), 'buf_in')),
-        rename_op(make_planar(make_out_of_place(kglobal, op_names), 'buf_in')),
-        # out-of-place, planar -> planar
-        rename_op(make_planar(make_planar(make_out_of_place(kdevice, op_names), 'buf_out'), 'buf_in')),
-        rename_op(make_planar(make_planar(make_out_of_place(kglobal, op_names), 'buf_out'), 'buf_in')),
-    ]
-
-    kdevice = make_inverse(kdevice, ['twiddles', 'TW2step'])
-    kglobal = make_inverse(kglobal, ['twiddles', 'TW2step'])
-
-    kernels += [
-        # in-place, interleaved
-        rename_ip(kdevice),
-        rename_ip(kglobal),
-        # in-place, planar
-        rename_ip(make_planar(kdevice, 'buf')),
-        rename_ip(make_planar(kglobal, 'buf')),
-        # out-of-place, interleaved -> interleaved
-        rename_op(make_out_of_place(kdevice, op_names)),
-        rename_op(make_out_of_place(kglobal, op_names)),
-        # out-of-place, interleaved -> planar
-        rename_op(make_planar(make_out_of_place(kdevice, op_names), 'buf_out')),
-        rename_op(make_planar(make_out_of_place(kglobal, op_names), 'buf_out')),
-        # out-of-place, planar -> interleaved
-        rename_op(make_planar(make_out_of_place(kdevice, op_names), 'buf_in')),
-        rename_op(make_planar(make_out_of_place(kglobal, op_names), 'buf_in')),
-        # out-of-place, planar -> planar
-        rename_op(make_planar(make_planar(make_out_of_place(kdevice, op_names), 'buf_out'), 'buf_in')),
-        rename_op(make_planar(make_planar(make_out_of_place(kglobal, op_names), 'buf_out'), 'buf_in')),
-    ]
-
-    return kernels
-
-
-def stockham_launch(factors, **kwargs):
-    """Launch helper.  Not used by rocFFT proper."""
-
-    length = product(factors)
-    params = get_launch_params(factors, **kwargs)
-
-    # arguments
-    scalar_type = Variable('scalar_type', 'typename')
-    cbtype      = Variable('CallbackType::NONE', 'CallbackType')
-    sb          = Variable('SB_UNIT', 'StrideBin')
-    inout       = Variable('inout', 'scalar_type', array=True)
-    twiddles    = Variable('twiddles', 'const scalar_type', array=True)
-    stride_in   = Variable('stride_in', 'size_t')
-    stride_out  = Variable('stride_out', 'size_t')
-    nbatch      = Variable('nbatch', 'size_t')
-    kargs       = Variable('kargs', 'size_t*')
-    null        = Variable('nullptr', 'void*')
-
-    # locals
-    nblocks = Variable('nblocks', 'int')
-
-    body = StatementList()
-    body += Declarations(nblocks)
-    body += Assign(nblocks, B(nbatch + (params.transforms_per_block - 1)) / params.transforms_per_block)
-    body += Call(f'forward_length{length}_SBRR',
-                 arguments = ArgumentList(twiddles, 1, kargs, kargs+1, nbatch, inout, null, null, 0, null, null),
-                 templates = TemplateList(scalar_type, sb, cbtype),
-                 launch_params = ArgumentList(nblocks, params.threads_per_block))
-
-    return Function(name = f'forward_length{length}_launch',
-                    templates = TemplateList(scalar_type),
-                    arguments = ArgumentList(inout, nbatch, twiddles, kargs, stride_in, stride_out),
-                    body = body)
-
-
-def stockham_default_factors(length):
-    supported_radixes = [2, 3, 4, 5, 6, 7, 8, 10, 11, 13, 16]
-    supported_radixes.sort(reverse=True)
-
-    remaining_length = length
-    factors = []
-    for f in supported_radixes:
-        while remaining_length % f == 0:
-            factors.append(f)
-            remaining_length /= f
-
-    if remaining_length != 1:
-        raise RuntimeError("length {} not factorizable!".format(length))
-
-    # default order of factors is ascending
-    factors.sort()
-    return factors
-
-
 def common_variables(length, params):
     """Return namespace of common/frequent variables used in Stockham kernels."""
 
@@ -231,16 +108,12 @@ def common_variables(length, params):
     return kvars, kvars.__dict__
 
 
-
 #
 # Tilings
 #
 
 class StockhamTiling:
     """Base tiling."""
-
-    def large_twiddle_multiplication(self):
-        return StatementList()
 
     def templates(self):
         """Return list of extra template arguments."""
@@ -249,6 +122,9 @@ class StockhamTiling:
     def arguments(self):
         """Return list of extra function arguments."""
         return ArgumentList()
+
+    def large_twiddle_multiplication(self):
+        return StatementList()
 
     def calculate_offsets(self, **kwargs):
         """Return code to calculate batch and buffer offsets."""
@@ -259,6 +135,7 @@ class StockhamTiling:
         return StatementList()
 
     def store_to_global(self, **kwargs):
+        """Return code to store LDS to global buffer."""
         return StatementList()
 
 
@@ -270,7 +147,7 @@ class StockhamTilingRR(StockhamTiling):
     def calculate_offsets(self, length, width, params,
                           lengths=None, stride=None,
                           dim=None, transform=None, block_id=None, thread_id=None,
-                          batch=None, offset=None, **kwargs):
+                          batch=None, offset=None, offset_lds=None, **kwargs):
 
         d         = Variable('d', 'int')
         i_d       = Variable('index_along_d', 'size_t')
@@ -288,7 +165,8 @@ class StockhamTilingRR(StockhamTiling):
                         Assign(remaining, remaining / lengths[d]),
                         Assign(offset, offset + i_d * stride[d])))
         stmts += Assign(batch, transform / plength)
-
+        stmts += Assign(offset, offset + batch * stride[dim])
+        stmts += Assign(offset_lds, length * B(transform % params.transforms_per_block))
         return stmts
 
     def load_from_global(self, length, width,
@@ -428,7 +306,6 @@ class StockhamTilingCR(StockhamTiling):
 # Stockham kernels
 #
 
-
 class StockhamKernel:
     """Base Stockham kernel."""
 
@@ -438,9 +315,11 @@ class StockhamKernel:
         self.scheme = scheme
         self.tiling = tiling
 
+
     @property
     def width(self):
         return self.length // self.height
+
 
     def generate_device_function(self):
         """Stockham device function."""
@@ -470,11 +349,9 @@ class StockhamKernel:
         body += LineBreak()
         body += CommentLines('offsets')
         body += self.tiling.calculate_offsets(self.length, self.width, params, **kwvars)
+
+        body += LineBreak()
         body += If(GreaterEqual(kvars.batch, kvars.nbatch), [ReturnStatement()])
-        body += LineBreak()
-        body += Assign(kvars.offset, kvars.offset + kvars.batch * kvars.stride[kvars.dim])
-        body += Assign(kvars.offset_lds, self.length * B(kvars.transform % params.transforms_per_block))
-        body += LineBreak()
 
         body += LineBreak()
         body += CommentLines('load global')
@@ -482,28 +359,18 @@ class StockhamKernel:
 
         body += LineBreak()
         body += CommentLines('transform')
-        # if tiling == Tiling.cc:
-        #     twd_large_arguments = Ternary(ltwdLDS_cond, large_twd_lds, twd_large)
-
-        dtmpls = TemplateList(kvars.scalar_type, kvars.sb)
-        #+ ([Ttwd_large, ltwd_base] if tiling==Tiling.cc else [])
-        dargs = ArgumentList(kvars.lds, kvars.twiddles, kvars.stride0, kvars.offset_lds)
-#        if + ([twd_large_arguments, transform] if tiling==Tiling.cc else []),
-
+        template_list = TemplateList(kvars.scalar_type, kvars.sb)
+        argument_list = ArgumentList(kvars.lds, kvars.twiddles, kvars.stride0, kvars.offset_lds)
         body += Call(f'forward_length{self.length}_{self.tiling.name}_device',
-                     arguments=dargs, templates=dtmpls)
+                     arguments=argument_list, templates=template_list)
 
         body += LineBreak()
         body += CommentLines('store global')
         body += SyncThreads()
         body += self.tiling.store_to_global(self.length, self.width, **kwvars)
 
-        # build function name and params
         template_list = TemplateList(kvars.scalar_type, kvars.sb, kvars.cbtype) + self.tiling.templates()
         argument_list = ArgumentList(kvars.twiddles, kvars.dim, kvars.lengths, kvars.stride, kvars.nbatch, kvars.buf) + cb_args + self.tiling.arguments()
-        # if tiling == Tiling.cc:
-        #     template_list += TemplateList(Ttwd_large, ltwd_base)
-        #     argument_list = ArgumentList(twiddles, twd_large, dim, lengths, stride, nbatch) + cb_args + ArgumentList(buf)
         return Function(name=f'forward_length{self.length}_{self.tiling.name}',
                         qualifier=f'__global__ __launch_bounds__({params.threads_per_block})',
                         templates=template_list,
@@ -730,6 +597,128 @@ class StockhamKernelWide(StockhamKernel):
                         body=body,
                         qualifier='__device__')
 
+
+def make_variants(kdevice, kglobal):
+    """Given in-place complex-interleaved kernels, create all other variations.
+
+    The ASTs in 'kglobal' and 'kdevice' are assumed to be in-place,
+    complex-interleaved kernels.
+
+    Return out-of-place and planar variations.
+    """
+    op_names = ['buf', 'stride', 'stride0', 'offset']
+
+    def rename(x, pre):
+        if 'forward' in x or 'inverse' in x:
+            return pre + x
+        return x
+
+    def rename_ip(x):
+        return rename_functions(x, lambda n: rename(n, 'ip_'))
+
+    def rename_op(x):
+        return rename_functions(x, lambda n: rename(n, 'op_'))
+
+    kernels = [
+        # in-place, interleaved
+        rename_ip(kdevice),
+        rename_ip(kglobal),
+        # in-place, planar
+        rename_ip(make_planar(kdevice, 'buf')),
+        rename_ip(make_planar(kglobal, 'buf')),
+        # out-of-place, interleaved -> interleaved
+        rename_op(make_out_of_place(kdevice, op_names)),
+        rename_op(make_out_of_place(kglobal, op_names)),
+        # out-of-place, interleaved -> planar
+        rename_op(make_planar(make_out_of_place(kdevice, op_names), 'buf_out')),
+        rename_op(make_planar(make_out_of_place(kglobal, op_names), 'buf_out')),
+        # out-of-place, planar -> interleaved
+        rename_op(make_planar(make_out_of_place(kdevice, op_names), 'buf_in')),
+        rename_op(make_planar(make_out_of_place(kglobal, op_names), 'buf_in')),
+        # out-of-place, planar -> planar
+        rename_op(make_planar(make_planar(make_out_of_place(kdevice, op_names), 'buf_out'), 'buf_in')),
+        rename_op(make_planar(make_planar(make_out_of_place(kglobal, op_names), 'buf_out'), 'buf_in')),
+    ]
+
+    kdevice = make_inverse(kdevice, ['twiddles', 'TW2step'])
+    kglobal = make_inverse(kglobal, ['twiddles', 'TW2step'])
+
+    kernels += [
+        # in-place, interleaved
+        rename_ip(kdevice),
+        rename_ip(kglobal),
+        # in-place, planar
+        rename_ip(make_planar(kdevice, 'buf')),
+        rename_ip(make_planar(kglobal, 'buf')),
+        # out-of-place, interleaved -> interleaved
+        rename_op(make_out_of_place(kdevice, op_names)),
+        rename_op(make_out_of_place(kglobal, op_names)),
+        # out-of-place, interleaved -> planar
+        rename_op(make_planar(make_out_of_place(kdevice, op_names), 'buf_out')),
+        rename_op(make_planar(make_out_of_place(kglobal, op_names), 'buf_out')),
+        # out-of-place, planar -> interleaved
+        rename_op(make_planar(make_out_of_place(kdevice, op_names), 'buf_in')),
+        rename_op(make_planar(make_out_of_place(kglobal, op_names), 'buf_in')),
+        # out-of-place, planar -> planar
+        rename_op(make_planar(make_planar(make_out_of_place(kdevice, op_names), 'buf_out'), 'buf_in')),
+        rename_op(make_planar(make_planar(make_out_of_place(kglobal, op_names), 'buf_out'), 'buf_in')),
+    ]
+
+    return kernels
+
+
+def stockham_launch(factors, **kwargs):
+    """Launch helper.  Not used by rocFFT proper."""
+
+    length = product(factors)
+    params = get_launch_params(factors, **kwargs)
+
+    # arguments
+    scalar_type = Variable('scalar_type', 'typename')
+    cbtype      = Variable('CallbackType::NONE', 'CallbackType')
+    sb          = Variable('SB_UNIT', 'StrideBin')
+    inout       = Variable('inout', 'scalar_type', array=True)
+    twiddles    = Variable('twiddles', 'const scalar_type', array=True)
+    stride_in   = Variable('stride_in', 'size_t')
+    stride_out  = Variable('stride_out', 'size_t')
+    nbatch      = Variable('nbatch', 'size_t')
+    kargs       = Variable('kargs', 'size_t*')
+    null        = Variable('nullptr', 'void*')
+
+    # locals
+    nblocks = Variable('nblocks', 'int')
+
+    body = StatementList()
+    body += Declarations(nblocks)
+    body += Assign(nblocks, B(nbatch + (params.transforms_per_block - 1)) / params.transforms_per_block)
+    body += Call(f'forward_length{length}_SBRR',
+                 arguments = ArgumentList(twiddles, 1, kargs, kargs+1, nbatch, inout, null, null, 0, null, null),
+                 templates = TemplateList(scalar_type, sb, cbtype),
+                 launch_params = ArgumentList(nblocks, params.threads_per_block))
+
+    return Function(name = f'forward_length{length}_launch',
+                    templates = TemplateList(scalar_type),
+                    arguments = ArgumentList(inout, nbatch, twiddles, kargs, stride_in, stride_out),
+                    body = body)
+
+
+def stockham_default_factors(length):
+    supported_radixes = [2, 3, 4, 5, 6, 7, 8, 10, 11, 13, 16]
+    supported_radixes.sort(reverse=True)
+
+    remaining_length = length
+    factors = []
+    for f in supported_radixes:
+        while remaining_length % f == 0:
+            factors.append(f)
+            remaining_length /= f
+
+    if remaining_length != 1:
+        raise RuntimeError("length {} not factorizable!".format(length))
+
+    # default order of factors is ascending
+    factors.sort()
+    return factors
 
 
 def stockham(length, **kwargs):
