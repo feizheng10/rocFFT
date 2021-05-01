@@ -281,7 +281,7 @@ class StockhamTilingCC(StockhamTiling):
                          Assign(remaining, remaining / lengths[d]),
                          Assign(offset, offset + i_d * stride[d])))
         stmts += LineBreak()
-        stmts += Assign(transform, self.i_1 * params.transforms_per_block + thread_id / (length // width))
+        stmts += Assign(transform, self.i_1 * params.transforms_per_block + thread_id / params.threads_per_transform)
         stmts += Assign(batch, block_id / plength)
         stmts += Assign(offset, offset + batch * stride[dim])
         stmts += Assign(offset_lds, length * B(transform % params.transforms_per_block))
