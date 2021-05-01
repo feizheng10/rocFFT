@@ -399,7 +399,7 @@ def list_old_generated_kernels(patterns=None,
     for patt in patterns:
         for prec in precisions:
             gen += generated_kernels[f'kernels_launch_{patt}_{prec}']
-    return gen
+    return list(set(gen))
 
 
 def list_generated_kernels(kernels):
