@@ -154,36 +154,36 @@ class StockhamTilingRR(StockhamTiling):
 
     name = 'SBRR'
 
-    def calculate_offsets(self, length, width, params,
+    def calculate_offsets(self, length, params,
                           lengths=None, stride=None,
                           dim=None, transform=None, block_id=None, thread_id=None,
                           batch=None, offset=None, offset_lds=None, **kwargs):
 
-        d         = Variable('d', 'int')
-        i_d       = Variable('index_along_d', 'size_t')
-        remaining = Variable('remaining', 'size_t')
-        plength   = Variable('plength', 'size_t', value=1)
+        d             = Variable('d', 'int')
+        index_along_d = Variable('index_along_d', 'size_t')
+        remaining     = Variable('remaining', 'size_t')
+        plength       = Variable('plength', 'size_t', value=1)
 
         stmts = StatementList()
-        stmts += Declarations(remaining, plength, d, i_d)
+        stmts += Declarations(remaining, plength, index_along_d)
         stmts += Assign(transform, block_id * params.transforms_per_block + thread_id / params.threads_per_transform)
         stmts += Assign(remaining, transform)
-        stmts += For(InlineAssign(d, 1), d < dim, Increment(d),
+        stmts += For(d.inline(1), d < dim, Increment(d),
                      StatementList(
                          Assign(plength, plength * lengths[d]),
-                         Assign(i_d, remaining % lengths[d]),
+                         Assign(index_along_d, remaining % lengths[d]),
                          Assign(remaining, remaining / lengths[d]),
-                         Assign(offset, offset + i_d * stride[d])))
+                         Assign(offset, offset + index_along_d * stride[d])))
         stmts += Assign(batch, transform / plength)
         stmts += Assign(offset, offset + batch * stride[dim])
         stmts += Assign(offset_lds, length * B(transform % params.transforms_per_block))
+
         return stmts
 
     def load_from_global(self, length, width, params,
                          thread=None, thread_id=None, stride0=None,
                          buf=None, offset=None, lds=None, offset_lds=None,
                          **kwargs):
-
         stmts = StatementList()
         stmts += Assign(thread, thread_id % (length // width))
         for w in range(width):
@@ -251,7 +251,7 @@ class StockhamTilingCC(StockhamTiling):
             stmts += Assign(R[w], t)
         return If(self.apply_large_twiddle, stmts)
 
-    def calculate_offsets(self, length, width, params,
+    def calculate_offsets(self, length, params,
                           transform=None, dim=None,
                           block_id=None, thread_id=None, lengths=None, stride=None, offset=None, batch=None,
                           offset_lds=None,
@@ -409,7 +409,7 @@ class StockhamKernel:
 
         body += LineBreak()
         body += CommentLines('offsets')
-        body += self.tiling.calculate_offsets(self.length, self.width, params, **kwvars)
+        body += self.tiling.calculate_offsets(self.length, params, **kwvars)
 
         body += LineBreak()
         body += If(GreaterEqual(kvars.batch, kvars.nbatch), [ReturnStatement()])

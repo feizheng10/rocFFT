@@ -310,6 +310,15 @@ class StatementList(BaseNode):
         return len(self.args)
 
 
+@name_args(['name', 'type', 'value'])
+class InlineDeclaration(BaseNode):
+    def __str__(self):
+        s = f'{self.type} {self.name}'
+        if self.value is not None:
+            s += f' = {self.value}'
+        return s
+
+
 @name_args(['name', 'type', 'size', 'value', 'post_qualifier'])
 class Declaration(BaseNode):
     def __str__(self):
@@ -606,6 +615,9 @@ class Variable(BaseNodeOps):
         if self.size is not None:
             return Declaration(self.name, self.type, size=self.size, value=self.value, post_qualifier=self.post_qualifier)
         return Declaration(self.name, self.type, value=self.value, post_qualifier=self.post_qualifier)
+
+    def inline(self, value):
+        return InlineDeclaration(self.name, self.type, value)
 
     def argument(self):
         if self.array:
