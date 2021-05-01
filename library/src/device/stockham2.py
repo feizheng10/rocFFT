@@ -38,8 +38,13 @@ def quantize(n, granularity):
     return granularity * ((n - 1) // granularity + 1)
 
 
-def get_launch_params(factors, flavour='uwide', bytes_per_element=16, lds_byte_limit=32 * 1024, threads_per_block=256, **kwargs):
-    """Return kernel launch parameters
+def get_launch_params(factors,
+                      flavour='uwide',
+                      bytes_per_element=16,
+                      lds_byte_limit=32 * 1024,
+                      threads_per_block=256,
+                      **kwargs):
+    """Return kernel launch parameters.
 
     Computes the maximum number of batches-per-block without:
     - going over 'lds_byte_limit' (32KiB by default) per block
@@ -55,34 +60,33 @@ def get_launch_params(factors, flavour='uwide', bytes_per_element=16, lds_byte_l
     elif flavour == 'wide':
         threads_per_transform = length // max(factors)
 
-    bpb = lds_byte_limit // bytes_per_batch
-    while threads_per_transform * bpb > threads_per_block:
-        bpb -= 1
-    return LaunchParams(bpb, quantize(threads_per_transform * bpb, thread_granularity), threads_per_transform)
+    batches_per_block = lds_byte_limit // bytes_per_batch
+    while threads_per_transform * batches_per_block > threads_per_block:
+        batches_per_block -= 1
+    return LaunchParams(batches_per_block,
+                        quantize(threads_per_transform * batches_per_block, thread_granularity),
+                        threads_per_transform)
 
 
 def get_callback_args():
-    cb_args = []
-    cb_args.append(Variable('load_cb_fn', 'void', array=True, restrict=True))
-    cb_args.append(Variable('load_cb_data', 'void', array=True, restrict=True))
-    cb_args.append(Variable('load_cb_lds_bytes', 'uint32_t'))
-    cb_args.append(Variable('store_cb_fn', 'void', array=True, restrict=True))
-    cb_args.append(Variable('store_cb_data', 'void', array=True, restrict=True))
-    return ArgumentList(*cb_args)
+    """Return callback argument list."""
+    return ArgumentList(*[
+        Variable('load_cb_fn', 'void', array=True, restrict=True),
+        Variable('load_cb_data', 'void', array=True, restrict=True),
+        Variable('load_cb_lds_bytes', 'uint32_t'),
+        Variable('store_cb_fn', 'void', array=True, restrict=True),
+        Variable('store_cb_data', 'void', array=True, restrict=True)])
 
 
 def common_variables(length, params):
     """Return namespace of common/frequent variables used in Stockham kernels."""
-
     kvars = NS(
-
         # templates
         scalar_type = Variable('scalar_type', 'typename'),
         cbtype      = Variable('cbtype', 'CallbackType'),
         sb          = Variable('sb', 'StrideBin'),
         Ttwd_large  = Variable('Ttwd_large', 'bool'),
         ltwd_base   = Variable('LTBase', 'size_t', value=8),
-
         # arguments
         buf         = Variable('buf', 'scalar_type', array=True, restrict=True),
         twiddles    = Variable('twiddles', 'const scalar_type', array=True, restrict=True),
@@ -92,7 +96,6 @@ def common_variables(length, params):
         lengths     = Variable('lengths', 'const size_t', array=True, restrict=True),
         stride      = Variable('stride', 'const size_t', array=True, restrict=True),
         nbatch      = Variable('nbatch', 'const size_t'),
-
         # locals
         lds        = Variable('lds', '__shared__ scalar_type', size=length * params.transforms_per_block),
         block_id   = Variable('blockIdx.x'),
@@ -104,7 +107,6 @@ def common_variables(length, params):
         transform  = Variable('transform', 'size_t'),
         stride0    = Variable('stride0', 'const size_t'),
     )
-
     return kvars, kvars.__dict__
 
 
