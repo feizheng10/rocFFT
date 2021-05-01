@@ -119,9 +119,9 @@ class StockhamTiling:
         """Return list of extra template arguments."""
         return TemplateList()
 
-    def arguments(self):
-        """Return list of extra function arguments."""
-        return ArgumentList()
+    def arguments(self, args, **kwargs):
+        """Return new function arguments."""
+        return args
 
     def large_twiddle_multiplication(self, *args, **kwargs):
         return StatementList()
@@ -199,7 +199,7 @@ class StockhamTilingCC(StockhamTiling):
 
     def __init__(self):
         self.apply_large_twiddle = Variable('Ttwd_large', 'bool')
-        self.large_twiddle_base  = Variable('LTBase', 'size_t')
+        self.large_twiddle_base  = Variable('LTBase', 'size_t', value=8)
         self.large_twiddles      = Variable('twd_large', 'const scalar_type', array=True)
         self.trans_local         = Variable('trans_local', 'size_t')
 
@@ -210,9 +210,17 @@ class StockhamTilingCC(StockhamTiling):
         """Return list of extra template arguments."""
         return TemplateList(self.apply_large_twiddle, self.large_twiddle_base)
 
-    def arguments(self):
-        """Return list of extra function arguments."""
-        return ArgumentList(self.large_twiddles, self.trans_local)
+    def arguments(self, alist, device=False, device_call=False, transform=None, **kwargs):
+        """Return new function arguments."""
+        if device:
+            return alist + ArgumentList(self.large_twiddles, self.trans_local)
+        if device_call:
+            which = Ternary(And(self.apply_large_twiddle, self.large_twiddle_base < 8),
+                            self.large_twd_lds, self.large_twiddles)
+            return alist + ArgumentList(which, transform)
+        nargs = list(alist.args)
+        nargs.insert(1, self.large_twiddles)
+        return ArgumentList(*nargs)
 
     def large_twiddle_multiplication(self, width, cumheight,
                                      W=None, t=None, R=None,
@@ -240,6 +248,7 @@ class StockhamTilingCC(StockhamTiling):
         ltwdLDS_cond  = And(self.apply_large_twiddle, Less(self.large_twiddle_base, 8))
 
         large_twd_lds = Variable('large_twd_lds', '__shared__ scalar_type', size=Ternary(ltwdLDS_cond, ltwd_entries, 0))
+        self.large_twd_lds = large_twd_lds
 
         stmts = StatementList()
         stmts += Declarations(large_twd_lds)
@@ -397,8 +406,9 @@ class StockhamKernel:
 
         body += LineBreak()
         body += CommentLines('transform')
-        template_list = TemplateList(kvars.scalar_type, kvars.sb)
+        template_list = TemplateList(kvars.scalar_type, kvars.sb) + self.tiling.templates()
         argument_list = ArgumentList(kvars.lds, kvars.twiddles, kvars.stride0, kvars.offset_lds)
+        argument_list = self.tiling.arguments(argument_list, device_call=True, **kwvars)
         body += Call(f'forward_length{self.length}_{self.tiling.name}_device',
                      arguments=argument_list, templates=template_list)
 
@@ -408,7 +418,8 @@ class StockhamKernel:
         body += self.tiling.store_to_global(self.length, self.width, params, **kwvars)
 
         template_list = TemplateList(kvars.scalar_type, kvars.sb, kvars.cbtype) + self.tiling.templates()
-        argument_list = ArgumentList(kvars.twiddles, kvars.dim, kvars.lengths, kvars.stride, kvars.nbatch, kvars.buf) + cb_args + self.tiling.arguments()
+        argument_list = ArgumentList(kvars.twiddles, kvars.dim, kvars.lengths, kvars.stride, kvars.nbatch) + cb_args + ArgumentList(kvars.buf)
+        argument_list = self.tiling.arguments(argument_list, device=False, **kwvars)
         return Function(name=f'forward_length{self.length}_{self.tiling.name}',
                         qualifier=f'__global__ __launch_bounds__({params.threads_per_block})',
                         templates=template_list,
@@ -500,7 +511,8 @@ class StockhamKernelUWide(StockhamKernel):
         body += LineBreak()
 
         template_list = TemplateList(kvars.scalar_type, kvars.sb) + self.tiling.templates()
-        argument_list = ArgumentList(X, T, kvars.stride0, kvars.offset_lds) + self.tiling.arguments()
+        argument_list = ArgumentList(X, T, kvars.stride0, kvars.offset_lds)
+        argument_list = self.tiling.arguments(argument_list, device=True, **kwvars)
         return Function(f'forward_length{length}_{self.tiling.name}_device',
                         arguments=argument_list,
                         templates=template_list,
@@ -620,7 +632,8 @@ class StockhamKernelWide(StockhamKernel):
             body += LineBreak()
 
         template_list = TemplateList(kvars.scalar_type, kvars.sb) + tiling.templates()
-        argument_list = ArgumentList(X, T, kvars.stride0, kvars.offset_lds) + tiling.arguments()
+        argument_list = ArgumentList(X, T, kvars.stride0, kvars.offset_lds)
+        argument_list = tiling.arguments(argument_list, device=True, **kwvars)
         return Function(f'forward_length{length}_{tiling.name}_device',
                         arguments=argument_list,
                         templates=template_list,
@@ -649,24 +662,29 @@ def make_variants(kdevice, kglobal):
     def rename_op(x):
         return rename_functions(x, lambda n: rename(n, 'op_'))
 
+
+    #
+    # XXX: Don't need in-place/out-of-place device functions anymore
+    #
+
     kernels = [
         # in-place, interleaved
         rename_ip(kdevice),
         rename_ip(kglobal),
         # in-place, planar
-        rename_ip(make_planar(kdevice, 'buf')),
+#        rename_ip(make_planar(kdevice, 'buf')),
         rename_ip(make_planar(kglobal, 'buf')),
         # out-of-place, interleaved -> interleaved
         rename_op(make_out_of_place(kdevice, op_names)),
         rename_op(make_out_of_place(kglobal, op_names)),
         # out-of-place, interleaved -> planar
-        rename_op(make_planar(make_out_of_place(kdevice, op_names), 'buf_out')),
+#        rename_op(make_planar(make_out_of_place(kdevice, op_names), 'buf_out')),
         rename_op(make_planar(make_out_of_place(kglobal, op_names), 'buf_out')),
         # out-of-place, planar -> interleaved
-        rename_op(make_planar(make_out_of_place(kdevice, op_names), 'buf_in')),
+#        rename_op(make_planar(make_out_of_place(kdevice, op_names), 'buf_in')),
         rename_op(make_planar(make_out_of_place(kglobal, op_names), 'buf_in')),
         # out-of-place, planar -> planar
-        rename_op(make_planar(make_planar(make_out_of_place(kdevice, op_names), 'buf_out'), 'buf_in')),
+#        rename_op(make_planar(make_planar(make_out_of_place(kdevice, op_names), 'buf_out'), 'buf_in')),
         rename_op(make_planar(make_planar(make_out_of_place(kglobal, op_names), 'buf_out'), 'buf_in')),
     ]
 
@@ -678,19 +696,19 @@ def make_variants(kdevice, kglobal):
         rename_ip(kdevice),
         rename_ip(kglobal),
         # in-place, planar
-        rename_ip(make_planar(kdevice, 'buf')),
+#        rename_ip(make_planar(kdevice, 'buf')),
         rename_ip(make_planar(kglobal, 'buf')),
         # out-of-place, interleaved -> interleaved
         rename_op(make_out_of_place(kdevice, op_names)),
         rename_op(make_out_of_place(kglobal, op_names)),
         # out-of-place, interleaved -> planar
-        rename_op(make_planar(make_out_of_place(kdevice, op_names), 'buf_out')),
+#        rename_op(make_planar(make_out_of_place(kdevice, op_names), 'buf_out')),
         rename_op(make_planar(make_out_of_place(kglobal, op_names), 'buf_out')),
         # out-of-place, planar -> interleaved
-        rename_op(make_planar(make_out_of_place(kdevice, op_names), 'buf_in')),
+#        rename_op(make_planar(make_out_of_place(kdevice, op_names), 'buf_in')),
         rename_op(make_planar(make_out_of_place(kglobal, op_names), 'buf_in')),
         # out-of-place, planar -> planar
-        rename_op(make_planar(make_planar(make_out_of_place(kdevice, op_names), 'buf_out'), 'buf_in')),
+#        rename_op(make_planar(make_planar(make_out_of_place(kdevice, op_names), 'buf_out'), 'buf_in')),
         rename_op(make_planar(make_planar(make_out_of_place(kglobal, op_names), 'buf_out'), 'buf_in')),
     ]
 
