@@ -465,8 +465,8 @@ class StockhamKernelUWide(StockhamKernel):
 
         body += LineBreak()
 
-        template_list=TemplateList(kvars.scalar_type, kvars.sb) + self.tiling.templates()
-        argument_list=ArgumentList(X, T, kvars.stride0, kvars.offset_lds) + self.tiling.arguments()
+        template_list = TemplateList(kvars.scalar_type, kvars.sb) + self.tiling.templates()
+        argument_list = ArgumentList(X, T, kvars.stride0, kvars.offset_lds) + self.tiling.arguments()
         return Function(f'forward_length{length}_{self.tiling.name}_device',
                         arguments=argument_list,
                         templates=template_list,
@@ -586,11 +586,8 @@ class StockhamKernelWide(StockhamKernel):
 
             body += LineBreak()
 
-        template_list=TemplateList(kvars.scalar_type, kvars.sb) + tiling.templates()
-        argument_list=ArgumentList(X, T, kvars.stride0, kvars.offset_lds) + tiling.arguments()
-        # if tiling == Tiling.cc:
-        #     template_list += TemplateList(Ttwd_large, ltwd_base)
-        #     argument_list += ArgumentList(twd_large, trans_local)
+        template_list = TemplateList(kvars.scalar_type, kvars.sb) + tiling.templates()
+        argument_list = ArgumentList(X, T, kvars.stride0, kvars.offset_lds) + tiling.arguments()
         return Function(f'forward_length{length}_{tiling.name}_device',
                         arguments=argument_list,
                         templates=template_list,
