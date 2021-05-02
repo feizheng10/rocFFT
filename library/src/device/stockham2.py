@@ -722,19 +722,15 @@ def make_variants(kdevice, kglobal):
         rename_ip(kdevice),
         rename_ip(kglobal),
         # in-place, planar
-#        rename_ip(make_planar(kdevice, 'buf')),
         rename_ip(make_planar(kglobal, 'buf')),
         # out-of-place, interleaved -> interleaved
         rename_op(make_out_of_place(kdevice, op_names)),
         rename_op(make_out_of_place(kglobal, op_names)),
         # out-of-place, interleaved -> planar
-#        rename_op(make_planar(make_out_of_place(kdevice, op_names), 'buf_out')),
         rename_op(make_planar(make_out_of_place(kglobal, op_names), 'buf_out')),
         # out-of-place, planar -> interleaved
-#        rename_op(make_planar(make_out_of_place(kdevice, op_names), 'buf_in')),
         rename_op(make_planar(make_out_of_place(kglobal, op_names), 'buf_in')),
         # out-of-place, planar -> planar
-#        rename_op(make_planar(make_planar(make_out_of_place(kdevice, op_names), 'buf_out'), 'buf_in')),
         rename_op(make_planar(make_planar(make_out_of_place(kglobal, op_names), 'buf_out'), 'buf_in')),
     ]
 
@@ -746,19 +742,15 @@ def make_variants(kdevice, kglobal):
         rename_ip(kdevice),
         rename_ip(kglobal),
         # in-place, planar
-#        rename_ip(make_planar(kdevice, 'buf')),
         rename_ip(make_planar(kglobal, 'buf')),
         # out-of-place, interleaved -> interleaved
         rename_op(make_out_of_place(kdevice, op_names)),
         rename_op(make_out_of_place(kglobal, op_names)),
         # out-of-place, interleaved -> planar
-#        rename_op(make_planar(make_out_of_place(kdevice, op_names), 'buf_out')),
         rename_op(make_planar(make_out_of_place(kglobal, op_names), 'buf_out')),
         # out-of-place, planar -> interleaved
-#        rename_op(make_planar(make_out_of_place(kdevice, op_names), 'buf_in')),
         rename_op(make_planar(make_out_of_place(kglobal, op_names), 'buf_in')),
         # out-of-place, planar -> planar
-#        rename_op(make_planar(make_planar(make_out_of_place(kdevice, op_names), 'buf_out'), 'buf_in')),
         rename_op(make_planar(make_planar(make_out_of_place(kglobal, op_names), 'buf_out'), 'buf_in')),
     ]
 
