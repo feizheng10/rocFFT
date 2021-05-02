@@ -516,20 +516,13 @@ class StockhamKernelUWide(StockhamKernel):
         return min(self.factors)
 
     def generate_device_function(self, **kwargs):
-        factors = self.factors
-        length = product(factors)
-        params = get_launch_params(factors, **kwargs)
-
-        kvars, kwvars = common_variables(length, params, self.nregisters)
+        factors, length, params = self.factors, self.length, get_launch_params(self.factors, **kwargs)
+        kvars, kwvars = common_variables(self.length, params, self.nregisters)
 
         body = StatementList()
         body += Declarations(kvars.thread, kvars.R, kvars.W, kvars.t)
-        body += LineBreak()
         body += Assign(kvars.thread, kvars.thread_id % (length // min(factors)))
 
-        #
-        # transform
-        #
         for npass, width in enumerate(factors):
             cumheight = product(factors[:npass])
 
@@ -547,8 +540,6 @@ class StockhamKernelUWide(StockhamKernel):
             if npass == len(factors) - 1:
                 body += self.tiling.large_twiddle_multiplication(width, cumheight, **kwvars)
 
-            body += LineBreak()
-            body += CommentLines('store lds')
             body += SyncThreads()
             body += If(kvars.thread < length // width,
                        store_lds(width=width, cumheight=cumheight, **kwvars))
@@ -579,13 +570,7 @@ class StockhamKernelWide(StockhamKernel):
         return max(self.factors)
 
     def generate_device_function(self, **kwargs):
-        factors = self.factors
-        length = product(factors)
-        params = get_launch_params(factors, **kwargs)
-
-        tiling = self.tiling
-        length = product(factors)
-
+        factors, length, params = self.factors, self.length, get_launch_params(self.factors, **kwargs)
         kvars, kwvars = common_variables(length, params, self.nregisters)
 
         height0 = length // max(factors)
@@ -608,9 +593,6 @@ class StockhamKernelWide(StockhamKernel):
         body += SyncThreads()
         body += LineBreak()
 
-        #
-        # transform
-        #
         for npass, width in enumerate(factors):
             cumheight = product(factors[:npass])
             nsubpasses = ceil(max(factors) / factors[npass])
@@ -639,10 +621,10 @@ class StockhamKernelWide(StockhamKernel):
             body += LineBreak()
 
         templates = TemplateList(kvars.scalar_type, kvars.sb)
-        templates = tiling.add_templates(templates)
+        templates = self.tiling.add_templates(templates)
         arguments = ArgumentList(kvars.lds, kvars.twiddles, kvars.stride0, kvars.offset_lds)
-        arguments = tiling.add_device_arguments(arguments, **kwvars)
-        return Function(f'forward_length{length}_{tiling.name}_device',
+        arguments = self.tiling.add_device_arguments(arguments, **kwvars)
+        return Function(f'forward_length{length}_{self.tiling.name}_device',
                         arguments=arguments,
                         templates=templates,
                         body=body,
