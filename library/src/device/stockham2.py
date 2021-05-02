@@ -540,8 +540,7 @@ class StockhamKernelUWide(StockhamKernel):
             body += load_lds(width=width, height=length//width, **kwvars)
 
             if npass > 0:
-                for w in range(1, width):
-                    body += twiddle(width=width, cumheight=cumheight, **kwvars)
+                body += twiddle(width=width, cumheight=cumheight, **kwvars)
 
             body += butterfly(width=width, **kwvars)
 
@@ -589,59 +588,21 @@ class StockhamKernelWide(StockhamKernel):
 
         kvars, kwvars = common_variables(length, params, self.nregisters)
 
-        X      = Variable('lds', 'scalar_type', array=True)
-        T      = Variable('twiddles', 'const scalar_type', array=True)
-        thread = Variable('thread', 'int')
-        W      = Variable('W', 'scalar_type')
-        t      = Variable('t', 'scalar_type')
-        R      = Variable('R', 'scalar_type', 2 * max(factors))
-
         height0 = length // max(factors)
 
-        def load_lds():
+        def add_work(codelet, assign=True, **kwargs):
             stmts = StatementList()
-            stmts += Assign(thread, kvars.thread_id % height0 + nsubpass * height0)
-            for w in range(width):
-                idx = kvars.offset_lds + thread + length // width * w
-                stmts += Assign(R[nsubpass * width + w], X[idx])
-            return stmts
-
-        def twiddle():
-            stmts = StatementList()
-            stmts += Assign(thread, kvars.thread_id % height0 + nsubpass * height0)
-            for w in range(1, width):
-                tidx = cumheight - 1 + w - 1 + (width - 1) * B(thread % cumheight)
-                ridx = nsubpass * width + w
-                stmts += Assign(W, T[tidx])
-                stmts += Assign(t.x, W.x * R[ridx].x - W.y * R[ridx].y)
-                stmts += Assign(t.y, W.y * R[ridx].x + W.x * R[ridx].y)
-                stmts += Assign(R[ridx], t)
-            return stmts
-
-        def butterfly():
-            stmts = StatementList()
-            stmts += Call(name=f'FwdRad{width}B1',
-                          arguments=ArgumentList(*[R[nsubpass * width + w].address() for w in range(width)]))
-            return stmts
-
-        def store_lds():
-            stmts = StatementList()
-            stmts += Assign(thread, kvars.thread_id % height0 + nsubpass * height0)
-            stmts += LineBreak()
-            for w in range(width):
-                idx = kvars.offset_lds + B(thread / cumheight) * (width * cumheight) + thread % cumheight + w * cumheight
-                stmts += Assign(X[idx], R[nsubpass * width + w])
-            stmts += LineBreak()
-            return stmts
-
-        def add_work(codelet):
+            if assign:
+                stmts += Assign(kvars.thread, kvars.thread_id % height0 + nsubpass * height0)
             if nsubpasses == 1 or nsubpass < nsubpasses - 1:
-                return codelet()
+                stmts += codelet(**kwargs)
+                return stmts
             needs_work = kvars.thread_id % height0 + nsubpass * height0 < length // width
-            return If(needs_work, codelet())
+            stmts += If(needs_work, codelet(**kwargs))
+            return stmts
 
         body = StatementList()
-        body += Declarations(thread, R, W, t)
+        body += Declarations(kvars.thread, kvars.R, kvars.W, kvars.t)
         body += LineBreak()
 
         body += SyncThreads()
@@ -660,29 +621,26 @@ class StockhamKernelWide(StockhamKernel):
                 body += SyncThreads()
                 body += LineBreak()
 
-            body += CommentLines('load lds')
             for nsubpass in range(nsubpasses):
-                body += add_work(load_lds)
-            body += LineBreak()
+                body += add_work(load_lds, width=width, height=length // width, spass=nsubpass, **kwvars)
+
             if npass > 0:
-                body += CommentLines('twiddle')
                 for nsubpass in range(nsubpasses):
-                    body += add_work(twiddle)
+                    body += add_work(twiddle, width=width, cumheight=cumheight, spass=nsubpass, **kwvars)
                 body += LineBreak()
-            body += CommentLines('butterfly')
+
             for nsubpass in range(nsubpasses):
-                body += add_work(butterfly)
-            body += LineBreak()
+                body += add_work(butterfly, width=width, spass=nsubpass, assign=False, **kwvars)
+
             body += SyncThreads()
-            body += CommentLines('store lds')
             for nsubpass in range(nsubpasses):
-                body += add_work(store_lds)
+                body += add_work(store_lds, width=width, cumheight=cumheight, spass=nsubpass, **kwvars)
 
             body += LineBreak()
 
         templates = TemplateList(kvars.scalar_type, kvars.sb)
         templates = tiling.add_templates(templates)
-        arguments = ArgumentList(X, T, kvars.stride0, kvars.offset_lds)
+        arguments = ArgumentList(kvars.lds, kvars.twiddles, kvars.stride0, kvars.offset_lds)
         arguments = tiling.add_device_arguments(arguments, **kwvars)
         return Function(f'forward_length{length}_{tiling.name}_device',
                         arguments=arguments,
