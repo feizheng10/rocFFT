@@ -540,8 +540,12 @@ class StockhamKernelUWide(StockhamKernel):
                 body += self.tiling.large_twiddle_multiplication(width, cumheight, **kwvars)
 
             body += SyncThreads()
-            body += If(kvars.thread < length // width,
-                       store_lds(width=width, cumheight=cumheight, **kwvars))
+            print(width, min(factors))
+            if width == min(factors):
+                body += store_lds(width=width, cumheight=cumheight, **kwvars)
+            else:
+                body += If(kvars.thread < length // width,
+                           store_lds(width=width, cumheight=cumheight, **kwvars))
 
         templates = TemplateList(kvars.scalar_type, kvars.sb)
         templates = self.tiling.add_templates(templates, **kwvars)
