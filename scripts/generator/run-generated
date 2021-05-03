@@ -38,6 +38,7 @@ def generate_and_run(factors, nbatch, manual, tpb, tpt, single, flavour):
         kdevice, kglobal = stockham.stockham(length, factors=factors, scheme='CS_KERNEL_STOCKHAM', **kwargs)
         klaunch = stockham.stockham_launch(factors, **kwargs)
         kernels = [kdevice, kglobal, klaunch]
+        print("THREADS PER BLOCK", kglobal.meta.threads_per_block)
         format_and_write("stockham_generated_kernel.h", njoin([ str(x) for x in kernels ]))
 
     # build the runner

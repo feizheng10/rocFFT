@@ -641,7 +641,8 @@ class StockhamKernelTall(StockhamKernel):
 
     @property
     def nregisters(self):
-        return self.length // self.kwargs.get('threads_per_transform', 1)
+        self.threads_per_transform = self.kwargs.get('threads_per_transform', 1)
+        return self.length // self.threads_per_transform
 
     def generate_device_function(self, **kwargs):
         factors, length, params = self.factors, self.length, get_launch_params(self.factors, **kwargs)
@@ -652,6 +653,10 @@ class StockhamKernelTall(StockhamKernel):
         body += LineBreak()
 
         height0 = self.nregisters
+        for width in factors:
+            if height0 % width != 0:
+                raise RuntimeError(f"Can't use tall kernel: threads-per-transform {self.threads_per_transform} and factor {width} are incompatible.")
+        # XXX also need to catch redundant case; ie 7 7 with tpt 1
 
         body += Assign(kvars.thread, kvars.thread_id % (length // height0))
         body += SyncThreads()
