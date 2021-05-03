@@ -725,7 +725,7 @@ def stockham_launch(factors, **kwargs):
     body += Declarations(nblocks)
     body += Assign(nblocks, B(nbatch + (params.transforms_per_block - 1)) / params.transforms_per_block)
     body += Call(f'forward_length{length}_SBRR',
-                 arguments = ArgumentList(twiddles, 1, kargs, kargs + 1, nbatch, inout, null, null, 0, null, null),
+                 arguments = ArgumentList(twiddles, 1, kargs, kargs + 1, nbatch, null, null, 0, null, null, inout),
                  templates = TemplateList(scalar_type, sb, cbtype),
                  launch_params = ArgumentList(nblocks, params.threads_per_block))
 
