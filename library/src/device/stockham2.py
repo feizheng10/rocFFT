@@ -215,7 +215,7 @@ class StockhamTilingRR(StockhamTiling):
         for w in range(height):
             idx = thread + w * width
             stmts += StoreGlobal(buf, offset + B(idx) * stride0, lds[offset_lds + idx])
-        return If(thread < height, stmts)
+        return If(thread < width, stmts)
 
 
 class StockhamTilingCC(StockhamTiling):
@@ -543,7 +543,6 @@ class StockhamKernelUWide(StockhamKernel):
                 body += self.tiling.large_twiddle_multiplication(width, cumheight, **kwvars)
 
             body += SyncThreads()
-            print(width, min(factors))
             if width == min(factors):
                 body += store_lds(width=width, cumheight=cumheight, **kwvars)
             else:
