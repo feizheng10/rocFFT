@@ -191,11 +191,12 @@ class StockhamTilingRR(StockhamTiling):
                          thread=None, thread_id=None, stride0=None,
                          buf=None, offset=None, lds=None, offset_lds=None,
                          **kwargs):
-        height = length // params.threads_per_transform
+        width  = params.threads_per_transform
+        height = length // width
         stmts = StatementList()
-        stmts += Assign(thread, thread_id % height)
-        for w in range(params.threads_per_transform):
-            idx = thread + w * height
+        stmts += Assign(thread, thread_id % width)
+        for w in range(height):
+            idx = thread + w * width
             stmts += Assign(lds[offset_lds + idx], LoadGlobal(buf, offset + B(idx) * stride0))
         return stmts
 
@@ -203,11 +204,12 @@ class StockhamTilingRR(StockhamTiling):
                         thread=None, thread_id=None, stride0=None,
                         buf=None, offset=None, lds=None, offset_lds=None,
                         **kwargs):
-        height = length // params.threads_per_transform
+        width  = params.threads_per_transform
+        height = length // width
         stmts = StatementList()
-        stmts += Assign(thread, thread_id % height)
-        for w in range(params.threads_per_transform):
-            idx = thread + w * height
+        stmts += Assign(thread, thread_id % width)
+        for w in range(height):
+            idx = thread + w * width
             stmts += StoreGlobal(buf, offset + B(idx) * stride0, lds[offset_lds + idx])
         return If(thread < height, stmts)
 
@@ -510,10 +512,6 @@ class StockhamKernelUWide(StockhamKernel):
     def nregisters(self):
         return max(self.factors)
 
-    @property
-    def width(self):
-        return min(self.factors)
-
     def generate_device_function(self, **kwargs):
         factors, length, params = self.factors, self.length, get_launch_params(self.factors, **kwargs)
         kvars, kwvars = common_variables(self.length, params, self.nregisters)
@@ -567,10 +565,6 @@ class StockhamKernelWide(StockhamKernel):
     @property
     def nregisters(self):
         return 2 * max(self.factors)
-
-    @property
-    def width(self):
-        return max(self.factors)
 
     def generate_device_function(self, **kwargs):
         factors, length, params = self.factors, self.length, get_launch_params(self.factors, **kwargs)
