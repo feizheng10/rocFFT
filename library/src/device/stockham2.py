@@ -1,6 +1,7 @@
 """Stockham kernel generator."""
 
 import functools
+import math
 import sys
 
 from collections import namedtuple
@@ -43,6 +44,7 @@ def get_launch_params(factors,
                       bytes_per_element=16,
                       lds_byte_limit=32 * 1024,
                       threads_per_block=256,
+                      threads_per_transform=1,
                       **kwargs):
     """Return kernel launch parameters.
 
@@ -59,6 +61,8 @@ def get_launch_params(factors,
         threads_per_transform = length // min(factors)
     elif flavour == 'wide':
         threads_per_transform = length // max(factors)
+    elif flavour == 'tall':
+        pass
 
     batches_per_block = lds_byte_limit // bytes_per_batch
     while threads_per_transform * batches_per_block > threads_per_block:
@@ -429,11 +433,12 @@ def store_lds(width=None, cumheight=None, spass=0,
 class StockhamKernel:
     """Base Stockham kernel."""
 
-    def __init__(self, factors, scheme, tiling):
+    def __init__(self, factors, scheme, tiling, **kwargs):
         self.length = product(factors)
         self.factors = factors
         self.scheme = scheme
         self.tiling = tiling
+        self.kwargs = kwargs
 
     def generate_device_function(self):
         """Stockham device function."""
@@ -628,6 +633,84 @@ class StockhamKernelWide(StockhamKernel):
                         qualifier='__device__')
 
 
+class StockhamKernelTall(StockhamKernel):
+    """Stockham tall kernel.
+
+    Each thread does multiple butterflies.
+    """
+
+    @property
+    def nregisters(self):
+        return self.length // self.kwargs.get('threads_per_transform', 1)
+
+    def generate_device_function(self, **kwargs):
+        factors, length, params = self.factors, self.length, get_launch_params(self.factors, **kwargs)
+        kvars, kwvars = common_variables(length, params, self.nregisters)
+
+        body = StatementList()
+        body += Declarations(kvars.thread, kvars.R, kvars.W, kvars.t)
+        body += LineBreak()
+
+        height0 = self.nregisters
+
+        body += Assign(kvars.thread, kvars.thread_id % (length // height0))
+        body += SyncThreads()
+        body += LineBreak()
+
+
+        for npass, width in enumerate(factors):
+            cumheight = product(factors[:npass])
+            height = length // width
+
+            body += CommentLines(f'pass {npass}')
+
+            if npass > 0:
+                body += SyncThreads()
+                body += LineBreak()
+
+            for h in range(height0 // width):
+                for w in range(width):
+                    idx = kvars.offset_lds + kvars.thread*(height0//width) + (w * height + h)
+                    body += Assign(kvars.R[h * width + w], kvars.lds[idx])
+
+            if npass > 0:
+                W, t, R = kvars.W, kvars.t, kvars.R
+                for h in range(height0 // width):
+                    for w in range(1, width):
+                        tid = B((height0 // width) * kvars.thread + h)
+                        tidx = cumheight - 1 + w - 1 + (width - 1) * B(tid % cumheight)
+                        ridx = h * width + w
+                        body += Assign(W, kvars.twiddles[tidx])
+                        body += Assign(t.x, W.x * R[ridx].x - W.y * R[ridx].y)
+                        body += Assign(t.y, W.y * R[ridx].x + W.x * R[ridx].y)
+                        body += Assign(R[ridx], t)
+                body += LineBreak()
+
+            for h in range(height0 // width):
+                body += butterfly(width=width, spass=h, assign=False, **kwvars)
+
+            body += SyncThreads()
+
+            for h in range(height0 // width):
+                for w in range(width):
+                    tid = B((height0 // width) * kvars.thread + h)
+                    idx = kvars.offset_lds + B(tid / cumheight) * (width * cumheight) + tid % cumheight + w * cumheight
+                    body += Assign(kvars.lds[idx], kvars.R[h * width + w])
+
+
+            body += LineBreak()
+
+        templates = TemplateList(kvars.scalar_type, kvars.sb)
+        templates = self.tiling.add_templates(templates)
+        arguments = ArgumentList(kvars.lds, kvars.twiddles, kvars.stride0, kvars.offset_lds)
+        arguments = self.tiling.add_device_arguments(arguments, **kwvars)
+        return Function(f'forward_length{length}_{self.tiling.name}_device',
+                        arguments=arguments,
+                        templates=templates,
+                        body=body,
+                        qualifier='__device__')
+
+
 def make_variants(kdevice, kglobal):
     """Given in-place complex-interleaved kernels, create all other variations.
 
@@ -769,6 +852,7 @@ def stockham(length, **kwargs):
     kwargs['3steps'] = kwargs.get('use_3steps_large_twd', defualt_3steps)
 
     scheme = kwargs['scheme']
+    kwargs.pop('scheme')
 
     tiling = {
         'CS_KERNEL_STOCKHAM':          StockhamTilingRR(),
@@ -778,8 +862,9 @@ def stockham(length, **kwargs):
     }[scheme]
 
     kernel = {
-        'uwide': StockhamKernelUWide(factors, scheme, tiling),
-        'wide': StockhamKernelWide(factors, scheme, tiling)
+        'uwide': StockhamKernelUWide(factors, scheme, tiling, **kwargs),
+        'wide': StockhamKernelWide(factors, scheme, tiling, **kwargs),
+        'tall': StockhamKernelTall(factors, scheme, tiling, **kwargs),
     }[kwargs.get('flavour', 'uwide')]
 
     kdevice = kernel.generate_device_function(**kwargs)
