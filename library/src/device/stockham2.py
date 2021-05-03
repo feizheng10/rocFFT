@@ -187,26 +187,29 @@ class StockhamTilingRR(StockhamTiling):
 
         return stmts
 
-    def load_from_global(self, length, width, params,
+    def load_from_global(self, length, params,
                          thread=None, thread_id=None, stride0=None,
                          buf=None, offset=None, lds=None, offset_lds=None,
                          **kwargs):
+        height = length // params.threads_per_transform
         stmts = StatementList()
-        stmts += Assign(thread, thread_id % (length // width))
-        for w in range(width):
-            idx = thread + w * (length // width)
+        stmts += Assign(thread, thread_id % height)
+        for w in range(params.threads_per_transform):
+            idx = thread + w * height
             stmts += Assign(lds[offset_lds + idx], LoadGlobal(buf, offset + B(idx) * stride0))
         return stmts
 
-    def store_to_global(self, length, width, params,
+    def store_to_global(self, length, params,
                         thread=None, thread_id=None, stride0=None,
                         buf=None, offset=None, lds=None, offset_lds=None,
                         **kwargs):
+        height = length // params.threads_per_transform
         stmts = StatementList()
-        for w in range(width):
-            idx = thread + w * (length // width)
+        stmts += Assign(thread, thread_id % height)
+        for w in range(params.threads_per_transform):
+            idx = thread + w * height
             stmts += StoreGlobal(buf, offset + B(idx) * stride0, lds[offset_lds + idx])
-        return If(thread < length // width, stmts)
+        return If(thread < height, stmts)
 
 
 class StockhamTilingCC(StockhamTiling):
@@ -308,7 +311,7 @@ class StockhamTilingCC(StockhamTiling):
 
         return stmts
 
-    def load_from_global(self, length, width, params,
+    def load_from_global(self, length, params,
                          buf=None, offset=None, lds=None,
                          lengths=None, thread_id=None, stride=None, stride0=None, **kwargs):
 
@@ -336,7 +339,7 @@ class StockhamTilingCC(StockhamTiling):
 
         return stmts
 
-    def store_to_global(self, length, width, params,
+    def store_to_global(self, length, params,
                         stride=None, stride0=None, lengths=None, buf=None, offset=None, lds=None,
                         **kwargs):
 
@@ -430,10 +433,6 @@ class StockhamKernel:
         self.scheme = scheme
         self.tiling = tiling
 
-    @property
-    def width(self):
-        return self.length // self.height
-
     def generate_device_function(self):
         """Stockham device function."""
         pass
@@ -467,7 +466,7 @@ class StockhamKernel:
 
         body += LineBreak()
         body += CommentLines('load global')
-        body += self.tiling.load_from_global(self.length, self.width, params, **kwvars)
+        body += self.tiling.load_from_global(self.length, params, **kwvars)
 
         body += LineBreak()
         body += CommentLines('transform')
@@ -481,7 +480,7 @@ class StockhamKernel:
         body += LineBreak()
         body += CommentLines('store global')
         body += SyncThreads()
-        body += self.tiling.store_to_global(self.length, self.width, params, **kwvars)
+        body += self.tiling.store_to_global(self.length, params, **kwvars)
 
         templates = TemplateList(kvars.scalar_type, kvars.sb, kvars.cbtype)
         templates = self.tiling.add_templates(templates)
