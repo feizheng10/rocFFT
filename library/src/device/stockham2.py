@@ -139,6 +139,7 @@ class AdditionalArgumentMixin:
         """Return new function arguments for calling the device kernel function."""
         return alist
 
+
 #
 # Large twiddle table support
 #
@@ -750,6 +751,7 @@ class StockhamKernelTall(StockhamKernel):
                         body=body,
                         qualifier='__device__')
 
+
 #
 # AST transforms
 #
@@ -815,6 +817,10 @@ def make_variants(kdevice, kglobal):
 
     return kernels
 
+
+#
+# Interface!
+#
 
 def stockham_launch(factors, **kwargs):
     """Launch helper.  Not used by rocFFT proper."""
