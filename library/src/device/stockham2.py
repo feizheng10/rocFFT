@@ -368,6 +368,7 @@ def store_lds(width=None, cumheight=None, spass=0,
     stmts += LineBreak()
     return stmts
 
+
 #
 # Stockham kernels
 #
@@ -483,7 +484,7 @@ class StockhamKernelUWide(StockhamKernel):
             body += CommentLines(f'pass {npass}')
             body += SyncThreads()
 
-            body += load_lds(width=width, height=length//width, **kwvars)
+            body += load_lds(width=width, height=length // width, **kwvars)
 
             if npass > 0:
                 body += twiddle(width=width, cumheight=cumheight, **kwvars)
@@ -614,20 +615,18 @@ class StockhamKernelTall(StockhamKernel):
         body += SyncThreads()
         body += LineBreak()
 
-
         for npass, width in enumerate(factors):
             cumheight = product(factors[:npass])
             height = length // width
 
             body += CommentLines(f'pass {npass}')
-
             if npass > 0:
                 body += SyncThreads()
                 body += LineBreak()
 
             for h in range(height0 // width):
                 for w in range(width):
-                    idx = kvars.offset_lds + kvars.thread*(height0//width) + (w * height + h)
+                    idx = kvars.offset_lds + kvars.thread * (height0 // width) + (w * height + h)
                     body += Assign(kvars.R[h * width + w], kvars.lds[idx])
 
             if npass > 0:
@@ -647,13 +646,11 @@ class StockhamKernelTall(StockhamKernel):
                 body += butterfly(width=width, spass=h, assign=False, **kwvars)
 
             body += SyncThreads()
-
             for h in range(height0 // width):
                 for w in range(width):
                     tid = B((height0 // width) * kvars.thread + h)
                     idx = kvars.offset_lds + B(tid / cumheight) * (width * cumheight) + tid % cumheight + w * cumheight
                     body += Assign(kvars.lds[idx], kvars.R[h * width + w])
-
 
             body += LineBreak()
 
@@ -738,7 +735,6 @@ class StockhamLargeTwiddles2Step():
 
         return stmts
 
-
     def multiply(self, width, cumheight,
                  W=None, t=None, R=None,
                  thread=None, scalar_type=None, **kwargs):
@@ -776,11 +772,7 @@ def make_variants(kdevice, kglobal):
     def rename_op(x):
         return rename_functions(x, lambda n: rename(n, 'op_'))
 
-
-    #
     # XXX: Don't need in-place/out-of-place device functions anymore
-    #
-
     kernels = [
         # in-place, interleaved
         rename_ip(kdevice),
