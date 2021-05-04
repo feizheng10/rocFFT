@@ -471,17 +471,30 @@ class StockhamKernel:
         self.large_twiddles = large_twiddles
         self.kwargs = kwargs
 
-    def templates(self, kvars, **kwargs):
+    def templates(self, kvars, **kwvars):
         templates = TemplateList(kvars.scalar_type, kvars.sb, kvars.cbtype)
-        templates = self.large_twiddles.add_templates(templates, **kwargs)
-        templates = self.tiling.add_templates(templates, **kwargs)
+        templates = self.large_twiddles.add_templates(templates, **kwvars)
+        templates = self.tiling.add_templates(templates, **kwvars)
         return templates
 
-    def device_arguments(self, kvars):
-        pass
+    def device_arguments(self, kvars, **kwvars):
+        arguments = ArgumentList(kvars.lds, kvars.twiddles, kvars.stride0, kvars.offset_lds)
+        arguments = self.large_twiddles.add_device_arguments(arguments, **kwvars)
+        arguments = self.tiling.add_device_arguments(arguments, **kwvars)
+        return arguments
 
-    def global_arguments(self, kvars):
-        pass
+    def device_call_arguments(self, kvars, **kwvars):
+        arguments = ArgumentList(kvars.lds, kvars.twiddles, kvars.stride0, kvars.offset_lds)
+        arguments = self.large_twiddles.add_device_call_arguments(arguments, **kwvars)
+        arguments = self.tiling.add_device_call_arguments(arguments, **kwvars)
+        return arguments
+
+    def global_arguments(self, kvars, **kwvars):
+        cb_args = get_callback_args()
+        arguments = ArgumentList(kvars.twiddles, kvars.dim, kvars.lengths, kvars.stride, kvars.nbatch) + cb_args + ArgumentList(kvars.buf)
+        arguments = self.large_twiddles.add_global_arguments(arguments, **kwvars)
+        arguments = self.tiling.add_global_arguments(arguments, **kwvars)
+        return arguments
 
     def generate_device_function(self):
         """Stockham device function."""
@@ -494,7 +507,6 @@ class StockhamKernel:
         params     = get_launch_params(self.factors, **kwargs)
 
         kvars, kwvars = common_variables(self.length, params, self.nregisters)
-        cb_args = get_callback_args()
 
         body = StatementList()
         body += CommentLines(
@@ -524,24 +536,19 @@ class StockhamKernel:
 
         body += LineBreak()
         body += CommentLines('transform')
-        arguments = ArgumentList(kvars.lds, kvars.twiddles, kvars.stride0, kvars.offset_lds)
-        arguments = self.large_twiddles.add_device_call_arguments(arguments, **kwvars)
-        arguments = self.tiling.add_device_call_arguments(arguments, **kwvars)
         body += Call(f'forward_length{self.length}_{self.tiling.name}_device',
-                     arguments=arguments, templates=self.templates(kvars, **kwargs))
+                     arguments=self.device_call_arguments(kvars, **kwvars),
+                     templates=self.templates(kvars, **kwvars))
 
         body += LineBreak()
         body += CommentLines('store global')
         body += SyncThreads()
         body += self.tiling.store_to_global(self.length, params, **kwvars)
 
-        arguments = ArgumentList(kvars.twiddles, kvars.dim, kvars.lengths, kvars.stride, kvars.nbatch) + cb_args + ArgumentList(kvars.buf)
-        arguments = self.large_twiddles.add_global_arguments(arguments, **kwvars)
-        arguments = self.tiling.add_global_arguments(arguments, **kwvars)
         return Function(name=f'forward_length{self.length}_{self.tiling.name}',
                         qualifier=f'__global__ __launch_bounds__({params.threads_per_block})',
-                        templates=self.templates(kvars, **kwargs),
-                        arguments=arguments,
+                        arguments=self.global_arguments(kvars, **kwvars),
+                        templates=self.templates(kvars, **kwvars),
                         meta=NS(factors=self.factors,
                                 length=self.length,
                                 transforms_per_block=params.transforms_per_block,
@@ -594,12 +601,9 @@ class StockhamKernelUWide(StockhamKernel):
                 body += If(kvars.thread < length // width,
                            store_lds(width=width, cumheight=cumheight, **kwvars))
 
-        arguments = ArgumentList(kvars.lds, kvars.twiddles, kvars.stride0, kvars.offset_lds)
-        arguments = self.large_twiddles.add_device_arguments(arguments, **kwvars)
-        arguments = self.tiling.add_device_arguments(arguments, **kwvars)
         return Function(f'forward_length{length}_{self.tiling.name}_device',
-                        arguments=arguments,
-                        templates=self.templates(kvars, **kwargs),
+                        arguments=self.device_arguments(kvars, **kwvars),
+                        templates=self.templates(kvars, **kwvars),
                         body=body,
                         qualifier='__device__')
 
@@ -665,11 +669,9 @@ class StockhamKernelWide(StockhamKernel):
 
             body += LineBreak()
 
-        arguments = ArgumentList(kvars.lds, kvars.twiddles, kvars.stride0, kvars.offset_lds)
-        arguments = self.tiling.add_device_arguments(arguments, **kwvars)
         return Function(f'forward_length{length}_{self.tiling.name}_device',
-                        arguments=arguments,
-                        templates=self.templates(kvars, **kwargs),
+                        arguments=self.device_arguments(kvars, **kwvars),
+                        templates=self.templates(kvars, **kwvars),
                         body=body,
                         qualifier='__device__')
 
@@ -742,16 +744,15 @@ class StockhamKernelTall(StockhamKernel):
 
             body += LineBreak()
 
-        arguments = ArgumentList(kvars.lds, kvars.twiddles, kvars.stride0, kvars.offset_lds)
-        arguments = self.tiling.add_device_arguments(arguments, **kwvars)
         return Function(f'forward_length{length}_{self.tiling.name}_device',
-                        arguments=arguments,
-                        templates=self.templates(kvars, **kwargs),
+                        arguments=self.device_arguments(kvars, **kwvars),
+                        templates=self.templates(kvars, **kwvars),
                         body=body,
                         qualifier='__device__')
 
-
-
+#
+# AST transforms
+#
 
 def make_variants(kdevice, kglobal):
     """Given in-place complex-interleaved kernels, create all other variations.
