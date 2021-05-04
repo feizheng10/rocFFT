@@ -90,13 +90,9 @@ def common_variables(length, params, nregisters):
         scalar_type = Variable('scalar_type', 'typename'),
         cbtype      = Variable('cbtype', 'CallbackType'),
         sb          = Variable('sb', 'StrideBin'),
-        Ttwd_large  = Variable('Ttwd_large', 'bool'),
-        ltwd_base   = Variable('LTBase', 'size_t', value=8),
         # arguments
         buf         = Variable('buf', 'scalar_type', array=True, restrict=True),
         twiddles    = Variable('twiddles', 'const scalar_type', array=True, restrict=True),
-        cb_args     = get_callback_args(),
-        twd_large   = Variable('twd_large', 'const scalar_type', array=True, restrict=True),
         dim         = Variable('dim', 'const size_t'),
         lengths     = Variable('lengths', 'const size_t', array=True, restrict=True),
         stride      = Variable('stride', 'const size_t', array=True, restrict=True),
@@ -113,7 +109,6 @@ def common_variables(length, params, nregisters):
         transform  = Variable('transform', 'size_t'),
         stride0    = Variable('stride0', 'const size_t'),
         # device
-        T      = Variable('twiddles', 'const scalar_type', array=True),
         W      = Variable('W', 'scalar_type'),
         t      = Variable('t', 'scalar_type'),
         R      = Variable('R', 'scalar_type', size=nregisters),
@@ -143,9 +138,6 @@ class StockhamTiling:
     def add_device_call_arguments(self, alist, **kwargs):
         """Return new function arguments for calling the device kernel function."""
         return alist
-
-    def large_twiddle_multiplication(self, *args, **kwargs):
-        return StatementList()
 
     def calculate_offsets(self, *args, **kwargs):
         """Return code to calculate batch and buffer offsets."""
@@ -224,46 +216,11 @@ class StockhamTilingCC(StockhamTiling):
     name = 'SBCC'
 
     def __init__(self):
-        self.apply_large_twiddle = Variable('apply_large_twiddle', 'bool')
-        self.large_twiddle_base  = Variable('large_twiddle_base', 'size_t', value=8)
-        self.large_twiddles      = Variable('large_twiddles', 'const scalar_type', array=True)
-        self.trans_local         = Variable('trans_local', 'size_t')
         self.tile_index          = Variable('tile_index', 'size_t')
         self.tile_length         = Variable('tile_length', 'size_t')
         self.edge                = Variable('edge', 'bool')
         self.tid1                = Variable('tid1', 'size_t')
         self.tid0                = Variable('tid0', 'size_t')
-
-    def add_templates(self, tlist, **kwargs):
-        return tlist + TemplateList(self.apply_large_twiddle, self.large_twiddle_base)
-
-    def add_global_arguments(self, alist, **kwargs):
-        nargs = list(alist.args)
-        nargs.insert(1, self.large_twiddles)
-        return ArgumentList(*nargs)
-
-    def add_device_arguments(self, alist, **kwargs):
-        return alist + ArgumentList(self.large_twiddles, self.trans_local)
-
-    def add_device_call_arguments(self, alist, transform=None, **kwargs):
-        which = Ternary(And(self.apply_large_twiddle, self.large_twiddle_base < 8),
-                        self.large_twd_lds, self.large_twiddles)
-        return alist + ArgumentList(which, transform)
-
-    def large_twiddle_multiplication(self, width, cumheight,
-                                     W=None, t=None, R=None,
-                                     thread=None, scalar_type=None, **kwargs):
-        stmts = StatementList()
-        stmts += CommentLines('large twiddle multiplication')
-        for w in range(width):
-            idx = B(B(thread % cumheight) + w * cumheight) * self.trans_local
-            stmts += Assign(W, InlineCall('TW2step',
-                                          arguments=ArgumentList(self.large_twiddles, idx),
-                                          templates=TemplateList(scalar_type, self.large_twiddle_base)))
-            stmts += Assign(t.x, W.x * R[w].x - W.y * R[w].y)
-            stmts += Assign(t.y, W.y * R[w].x + W.x * R[w].y)
-            stmts += Assign(R[w], t)
-        return If(self.apply_large_twiddle, stmts)
 
     def calculate_offsets(self, length, params,
                           transform=None, dim=None,
@@ -271,28 +228,13 @@ class StockhamTilingCC(StockhamTiling):
                           offset_lds=None,
                           **kwargs):
 
-        ltwd_id = Variable('ltwd_id', 'size_t', value=thread_id)
-        ltwd_entries = Multiply(B(ShiftLeft(1, self.large_twiddle_base)), 3)
-        ltwd_in_lds = And(self.apply_large_twiddle, Less(self.large_twiddle_base, 8))
-
-        self.large_twd_lds = Variable('large_twd_lds', '__shared__ scalar_type',
-                                      size=Ternary(ltwd_in_lds, ltwd_entries, 0))
-
-        stmts = StatementList()
-        stmts += Declarations(self.tile_index, self.tile_length, self.large_twd_lds)
-        stmts += If(ltwd_in_lds,
-                    StatementList(
-                        Declaration(ltwd_id.name, ltwd_id.type, value=ltwd_id.value),
-                        While(Less(ltwd_id, ltwd_entries),
-                              StatementList(
-                                  Assign(self.large_twd_lds[ltwd_id], self.large_twiddles[ltwd_id]),
-                                  AddAssign(ltwd_id, params.threads_per_block)))))
-
         d             = Variable('d', 'int')
         index_along_d = Variable('index_along_d', 'size_t')
         remaining     = Variable('remaining', 'size_t')
         plength       = Variable('plength', 'size_t', value=1)
 
+        stmts = StatementList()
+        stmts += Declarations(self.tile_index, self.tile_length)
         stmts += LineBreak()
         stmts += CommentLines('calculate offset for each tile:',
                               '  tile_index  now means index of the tile along dim1',
@@ -433,11 +375,12 @@ def store_lds(width=None, cumheight=None, spass=0,
 class StockhamKernel:
     """Base Stockham kernel."""
 
-    def __init__(self, factors, scheme, tiling, **kwargs):
+    def __init__(self, factors, scheme, tiling, large_twiddles, **kwargs):
         self.length = product(factors)
         self.factors = factors
         self.scheme = scheme
         self.tiling = tiling
+        self.large_twiddles = large_twiddles
         self.kwargs = kwargs
 
     def generate_device_function(self):
@@ -465,6 +408,10 @@ class StockhamKernel:
         body += CallbackDeclaration()
 
         body += LineBreak()
+        body += CommentLines('large twiddles')
+        body += self.large_twiddles.load(self.length, params, **kwvars)
+
+        body += LineBreak()
         body += CommentLines('offsets')
         body += self.tiling.calculate_offsets(self.length, params, **kwvars)
 
@@ -478,8 +425,10 @@ class StockhamKernel:
         body += LineBreak()
         body += CommentLines('transform')
         templates = TemplateList(kvars.scalar_type, kvars.sb)
+        templates = self.large_twiddles.add_templates(templates, **kwvars)
         templates = self.tiling.add_templates(templates, **kwvars)
         arguments = ArgumentList(kvars.lds, kvars.twiddles, kvars.stride0, kvars.offset_lds)
+        arguments = self.large_twiddles.add_device_call_arguments(arguments, **kwvars)
         arguments = self.tiling.add_device_call_arguments(arguments, **kwvars)
         body += Call(f'forward_length{self.length}_{self.tiling.name}_device',
                      arguments=arguments, templates=templates)
@@ -490,8 +439,10 @@ class StockhamKernel:
         body += self.tiling.store_to_global(self.length, params, **kwvars)
 
         templates = TemplateList(kvars.scalar_type, kvars.sb, kvars.cbtype)
+        templates = self.large_twiddles.add_templates(templates)
         templates = self.tiling.add_templates(templates)
         arguments = ArgumentList(kvars.twiddles, kvars.dim, kvars.lengths, kvars.stride, kvars.nbatch) + cb_args + ArgumentList(kvars.buf)
+        arguments = self.large_twiddles.add_global_arguments(arguments, **kwvars)
         arguments = self.tiling.add_global_arguments(arguments, **kwvars)
         return Function(name=f'forward_length{self.length}_{self.tiling.name}',
                         qualifier=f'__global__ __launch_bounds__({params.threads_per_block})',
@@ -540,7 +491,7 @@ class StockhamKernelUWide(StockhamKernel):
             body += butterfly(width=width, **kwvars)
 
             if npass == len(factors) - 1:
-                body += self.tiling.large_twiddle_multiplication(width, cumheight, **kwvars)
+                body += self.large_twiddles.multiply(width, cumheight, **kwvars)
 
             body += SyncThreads()
             if width == min(factors):
@@ -550,8 +501,10 @@ class StockhamKernelUWide(StockhamKernel):
                            store_lds(width=width, cumheight=cumheight, **kwvars))
 
         templates = TemplateList(kvars.scalar_type, kvars.sb)
+        templates = self.large_twiddles.add_templates(templates, **kwvars)
         templates = self.tiling.add_templates(templates, **kwvars)
         arguments = ArgumentList(kvars.lds, kvars.twiddles, kvars.stride0, kvars.offset_lds)
+        arguments = self.large_twiddles.add_device_arguments(arguments, **kwvars)
         arguments = self.tiling.add_device_arguments(arguments, **kwvars)
         return Function(f'forward_length{length}_{self.tiling.name}_device',
                         arguments=arguments,
@@ -715,6 +668,93 @@ class StockhamKernelTall(StockhamKernel):
                         qualifier='__device__')
 
 
+class StockhamLargeTwiddles():
+
+    def add_templates(self, tlist, **kwargs):
+        return tlist
+
+    def add_global_arguments(self, alist, **kwargs):
+        return alist
+
+    def add_device_arguments(self, alist, **kwargs):
+        return alist
+
+    def add_device_call_arguments(self, alist, transform=None, **kwargs):
+        return alist
+
+    def load(self, length, params, **kwargs):
+        return StatementList()
+
+    def multiply(self, width, cumheight, **kwargs):
+        return StatementList()
+
+
+class StockhamLargeTwiddles2Step():
+
+    def __init__(self):
+        self.apply_large_twiddle = Variable('apply_large_twiddle', 'bool')
+        self.large_twiddle_base  = Variable('large_twiddle_base', 'size_t', value=8)
+        self.large_twiddles      = Variable('large_twiddles', 'const scalar_type', array=True)
+        self.trans_local         = Variable('trans_local', 'size_t')
+
+    def add_templates(self, tlist, **kwargs):
+        return tlist + TemplateList(self.apply_large_twiddle, self.large_twiddle_base)
+
+    def add_global_arguments(self, alist, **kwargs):
+        nargs = list(alist.args)
+        nargs.insert(1, self.large_twiddles)
+        return ArgumentList(*nargs)
+
+    def add_device_arguments(self, alist, **kwargs):
+        return alist + ArgumentList(self.large_twiddles, self.trans_local)
+
+    def add_device_call_arguments(self, alist, transform=None, **kwargs):
+        which = Ternary(And(self.apply_large_twiddle, self.large_twiddle_base < 8),
+                        self.large_twd_lds, self.large_twiddles)
+        return alist + ArgumentList(which, transform)
+
+    def load(self, length, params,
+             transform=None, dim=None,
+             block_id=None, thread_id=None, lengths=None, stride=None, offset=None, batch=None,
+             offset_lds=None,
+             **kwargs):
+
+        ltwd_id = Variable('ltwd_id', 'size_t', value=thread_id)
+        ltwd_entries = Multiply(B(ShiftLeft(1, self.large_twiddle_base)), 3)
+        ltwd_in_lds = And(self.apply_large_twiddle, Less(self.large_twiddle_base, 8))
+
+        self.large_twd_lds = Variable('large_twd_lds', '__shared__ scalar_type',
+                                      size=Ternary(ltwd_in_lds, ltwd_entries, 0))
+
+        stmts = StatementList()
+        stmts += Declarations(self.large_twd_lds)
+        stmts += If(ltwd_in_lds,
+                    StatementList(
+                        Declaration(ltwd_id.name, ltwd_id.type, value=ltwd_id.value),
+                        While(Less(ltwd_id, ltwd_entries),
+                              StatementList(
+                                  Assign(self.large_twd_lds[ltwd_id], self.large_twiddles[ltwd_id]),
+                                  AddAssign(ltwd_id, params.threads_per_block)))))
+
+        return stmts
+
+
+    def multiply(self, width, cumheight,
+                 W=None, t=None, R=None,
+                 thread=None, scalar_type=None, **kwargs):
+        stmts = StatementList()
+        stmts += CommentLines('large twiddle multiplication')
+        for w in range(width):
+            idx = B(B(thread % cumheight) + w * cumheight) * self.trans_local
+            stmts += Assign(W, InlineCall('TW2step',
+                                          arguments=ArgumentList(self.large_twiddles, idx),
+                                          templates=TemplateList(scalar_type, self.large_twiddle_base)))
+            stmts += Assign(t.x, W.x * R[w].x - W.y * R[w].y)
+            stmts += Assign(t.y, W.y * R[w].x + W.x * R[w].y)
+            stmts += Assign(R[w], t)
+        return If(self.apply_large_twiddle, stmts)
+
+
 def make_variants(kdevice, kglobal):
     """Given in-place complex-interleaved kernels, create all other variations.
 
@@ -865,10 +905,14 @@ def stockham(length, **kwargs):
         'CS_KERNEL_STOCKHAM_BLOCK_CR': StockhamTilingCR(),
     }[scheme]
 
+    twiddles = StockhamLargeTwiddles()
+    if scheme == 'CS_KERNEL_STOCKHAM_BLOCK_CC':
+        twiddles = StockhamLargeTwiddles2Step()
+
     kernel = {
-        'uwide': StockhamKernelUWide(factors, scheme, tiling, **kwargs),
-        'wide': StockhamKernelWide(factors, scheme, tiling, **kwargs),
-        'tall': StockhamKernelTall(factors, scheme, tiling, **kwargs),
+        'uwide': StockhamKernelUWide(factors, scheme, tiling, twiddles, **kwargs),
+        'wide': StockhamKernelWide(factors, scheme, tiling, twiddles, **kwargs),
+        'tall': StockhamKernelTall(factors, scheme, tiling, twiddles, **kwargs),
     }[kwargs.get('flavour', 'uwide')]
 
     kdevice = kernel.generate_device_function(**kwargs)
