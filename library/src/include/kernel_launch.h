@@ -244,6 +244,23 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
     void (*kernel_func)(BASE_ARGS(PRECISION), __VA_ARGS__) = nullptr;                       \
     GET_KERNEL_FUNC_CBTYPE_SBRC(FWD, BACK, PRECISION, COL_DIM, TRANSPOSE_TYPE, CallbackType::NONE)
 
+// SBCR is always out-of-place
+#define GET_KERNEL_FUNC_CBTYPE_SBCR(FWD, BACK, PRECISION, CBTYPE) \
+    if(data->node->direction == -1)                               \
+        kernel_func = FWD<PRECISION, SB_UNIT, CBTYPE>;            \
+    else                                                          \
+        kernel_func = BACK<PRECISION, SB_UNIT, CBTYPE>;
+#define GET_KERNEL_FUNC_SBCR_CB(FWD, BACK, PRECISION, COL_DIM, TRANSPOSE_TYPE, BASE_ARGS, ...) \
+    void (*kernel_func)(BASE_ARGS(PRECISION), __VA_ARGS__) = nullptr;                          \
+    if(data->get_callback_type() == CallbackType::NONE)                                        \
+        GET_KERNEL_FUNC_CBTYPE_SBCR(FWD, BACK, PRECISION, CallbackType::NONE)                  \
+    else                                                                                       \
+        GET_KERNEL_FUNC_CBTYPE_SBCR(                                                           \
+            FWD, BACK, PRECISION, COL_DIM, TRANSPOSE_TYPE, CallbackType::USER_LOAD_STORE)
+#define GET_KERNEL_FUNC_SBCR(FWD, BACK, PRECISION, COL_DIM, TRANSPOSE_TYPE, BASE_ARGS, ...) \
+    void (*kernel_func)(BASE_ARGS(PRECISION), __VA_ARGS__) = nullptr;                       \
+    GET_KERNEL_FUNC_CBTYPE_SBCR(FWD, BACK, PRECISION, CallbackType::NONE)
+
 #define POWX_SMALL_GENERATOR(FUNCTION_NAME,                                                   \
                              IP_FWD_KERN_NAME,                                                \
                              IP_BACK_KERN_NAME,                                               \
@@ -745,6 +762,137 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                                  PRECISION,                                               \
                                  COL_DIM,                                                 \
                                  TRANSPOSE_TYPE,                                          \
+                                 KERNEL_BASE_ARGS_OP,                                     \
+                                 real_type_t<PRECISION>* __restrict__,                    \
+                                 real_type_t<PRECISION>* __restrict__,                    \
+                                 real_type_t<PRECISION>* __restrict__,                    \
+                                 real_type_t<PRECISION>* __restrict__);                   \
+            hipLaunchKernelGGL(kernel_func,                                               \
+                               dim3(data->gridParam.b_x),                                 \
+                               dim3(data->gridParam.tpb_x),                               \
+                               data->gridParam.lds_bytes,                                 \
+                               rocfft_stream,                                             \
+                               (PRECISION*)data->node->twiddles.data(),                   \
+                               data->node->length.size(),                                 \
+                               data->node->devKernArg.data(),                             \
+                               data->node->devKernArg.data() + 1 * KERN_ARGS_ARRAY_WIDTH, \
+                               data->node->devKernArg.data() + 2 * KERN_ARGS_ARRAY_WIDTH, \
+                               batch,                                                     \
+                               data->callbacks.load_cb_fn,                                \
+                               data->callbacks.load_cb_data,                              \
+                               data->callbacks.load_cb_lds_bytes,                         \
+                               data->callbacks.store_cb_fn,                               \
+                               data->callbacks.store_cb_data,                             \
+                               (real_type_t<PRECISION>*)data->bufIn[0],                   \
+                               (real_type_t<PRECISION>*)data->bufIn[1],                   \
+                               (real_type_t<PRECISION>*)data->bufOut[0],                  \
+                               (real_type_t<PRECISION>*)data->bufOut[1]);                 \
+        }                                                                                 \
+    }
+
+#define POWX_LARGE_SBCR_GENERATOR(                                                        \
+    FUNCTION_NAME, FWD_KERN_NAME, BACK_KERN_NAME, PRECISION, COL_DIM, TRANSPOSE_TYPE)     \
+    void FUNCTION_NAME(const void* data_p, void* back_p)                                  \
+    {                                                                                     \
+        DeviceCallIn* data          = (DeviceCallIn*)data_p;                              \
+        hipStream_t   rocfft_stream = data->rocfft_stream;                                \
+                                                                                          \
+        const size_t batch = data->node->batch;                                           \
+                                                                                          \
+        if(array_type_is_interleaved(data->node->inArrayType)                             \
+           && array_type_is_interleaved(data->node->outArrayType))                        \
+        {                                                                                 \
+            GET_KERNEL_FUNC_SBCR_CB(FWD_KERN_NAME,                                        \
+                                    BACK_KERN_NAME,                                       \
+                                    PRECISION,                                            \
+                                    KERNEL_BASE_ARGS_OP,                                  \
+                                    PRECISION* __restrict__,                              \
+                                    PRECISION* __restrict__);                             \
+            hipLaunchKernelGGL(kernel_func,                                               \
+                               dim3(data->gridParam.b_x),                                 \
+                               dim3(data->gridParam.tpb_x),                               \
+                               data->gridParam.lds_bytes,                                 \
+                               rocfft_stream,                                             \
+                               (PRECISION*)data->node->twiddles.data(),                   \
+                               data->node->length.size(),                                 \
+                               data->node->devKernArg.data(),                             \
+                               data->node->devKernArg.data() + 1 * KERN_ARGS_ARRAY_WIDTH, \
+                               data->node->devKernArg.data() + 2 * KERN_ARGS_ARRAY_WIDTH, \
+                               batch,                                                     \
+                               data->callbacks.load_cb_fn,                                \
+                               data->callbacks.load_cb_data,                              \
+                               data->callbacks.load_cb_lds_bytes,                         \
+                               data->callbacks.store_cb_fn,                               \
+                               data->callbacks.store_cb_data,                             \
+                               (PRECISION*)data->bufIn[0],                                \
+                               (PRECISION*)data->bufOut[0]);                              \
+        }                                                                                 \
+        else if(array_type_is_interleaved(data->node->inArrayType)                        \
+                && array_type_is_planar(data->node->outArrayType))                        \
+        {                                                                                 \
+            GET_KERNEL_FUNC_SBCR(FWD_KERN_NAME,                                           \
+                                 BACK_KERN_NAME,                                          \
+                                 PRECISION,                                               \
+                                 KERNEL_BASE_ARGS_OP,                                     \
+                                 PRECISION* __restrict__,                                 \
+                                 real_type_t<PRECISION>* __restrict__,                    \
+                                 real_type_t<PRECISION>* __restrict__);                   \
+            hipLaunchKernelGGL(kernel_func,                                               \
+                               dim3(data->gridParam.b_x),                                 \
+                               dim3(data->gridParam.tpb_x),                               \
+                               data->gridParam.lds_bytes,                                 \
+                               rocfft_stream,                                             \
+                               (PRECISION*)data->node->twiddles.data(),                   \
+                               data->node->length.size(),                                 \
+                               data->node->devKernArg.data(),                             \
+                               data->node->devKernArg.data() + 1 * KERN_ARGS_ARRAY_WIDTH, \
+                               data->node->devKernArg.data() + 2 * KERN_ARGS_ARRAY_WIDTH, \
+                               batch,                                                     \
+                               data->callbacks.load_cb_fn,                                \
+                               data->callbacks.load_cb_data,                              \
+                               data->callbacks.load_cb_lds_bytes,                         \
+                               data->callbacks.store_cb_fn,                               \
+                               data->callbacks.store_cb_data,                             \
+                               (PRECISION*)data->bufIn[0],                                \
+                               (real_type_t<PRECISION>*)data->bufOut[0],                  \
+                               (real_type_t<PRECISION>*)data->bufOut[1]);                 \
+        }                                                                                 \
+        else if(array_type_is_planar(data->node->inArrayType)                             \
+                && array_type_is_interleaved(data->node->outArrayType))                   \
+        {                                                                                 \
+            GET_KERNEL_FUNC_SBCR(FWD_KERN_NAME,                                           \
+                                 BACK_KERN_NAME,                                          \
+                                 PRECISION,                                               \
+                                 KERNEL_BASE_ARGS_OP,                                     \
+                                 real_type_t<PRECISION>* __restrict__,                    \
+                                 real_type_t<PRECISION>* __restrict__,                    \
+                                 PRECISION* __restrict__);                                \
+            hipLaunchKernelGGL(kernel_func,                                               \
+                               dim3(data->gridParam.b_x),                                 \
+                               dim3(data->gridParam.tpb_x),                               \
+                               data->gridParam.lds_bytes,                                 \
+                               rocfft_stream,                                             \
+                               (PRECISION*)data->node->twiddles.data(),                   \
+                               data->node->length.size(),                                 \
+                               data->node->devKernArg.data(),                             \
+                               data->node->devKernArg.data() + 1 * KERN_ARGS_ARRAY_WIDTH, \
+                               data->node->devKernArg.data() + 2 * KERN_ARGS_ARRAY_WIDTH, \
+                               batch,                                                     \
+                               data->callbacks.load_cb_fn,                                \
+                               data->callbacks.load_cb_data,                              \
+                               data->callbacks.load_cb_lds_bytes,                         \
+                               data->callbacks.store_cb_fn,                               \
+                               data->callbacks.store_cb_data,                             \
+                               (real_type_t<PRECISION>*)data->bufIn[0],                   \
+                               (real_type_t<PRECISION>*)data->bufIn[1],                   \
+                               (PRECISION*)data->bufOut[0]);                              \
+        }                                                                                 \
+        else if(array_type_is_planar(data->node->inArrayType)                             \
+                && array_type_is_planar(data->node->outArrayType))                        \
+        {                                                                                 \
+            GET_KERNEL_FUNC_SBCR(FWD_KERN_NAME,                                           \
+                                 BACK_KERN_NAME,                                          \
+                                 PRECISION,                                               \
                                  KERNEL_BASE_ARGS_OP,                                     \
                                  real_type_t<PRECISION>* __restrict__,                    \
                                  real_type_t<PRECISION>* __restrict__,                    \

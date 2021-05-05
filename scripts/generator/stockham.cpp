@@ -11,8 +11,8 @@
 
 #include <rocrand/rocrand.hpp>
 
-#include "timer.h"
 #include "../../library/src/device/kernels/callback.h"
+#include "timer.h"
 
 #define HIP_CHECK(r)    \
     if(r != hipSuccess) \
