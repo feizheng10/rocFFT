@@ -28,7 +28,8 @@ from generator import (ArgumentList, BaseNode, Call, CommentBlock, ExternC, Func
                        LineBreak, Map, Pragma, StatementList, Variable, name_args, format_and_write)
 
 
-import stockham
+#import stockham
+import stockham2 as stockham
 
 
 #
@@ -385,7 +386,7 @@ def list_old_generated_kernels(patterns=None,
     for patt in patterns:
         for prec in precisions:
             gen += generated_kernels[f'kernels_launch_{patt}_{prec}']
-    return gen
+    return list(set(gen))
 
 
 def list_generated_kernels(kernels):
