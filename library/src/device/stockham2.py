@@ -556,7 +556,7 @@ class StockhamKernel:
                                 threads_per_block=params.threads_per_block,
                                 scheme=self.scheme,
                                 use_3steps_large_twd=use_3steps,
-                                pool=None),
+                                transpose=None),
                         body=body)
 
 
