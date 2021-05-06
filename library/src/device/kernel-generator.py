@@ -13,6 +13,7 @@ Note that 'small' kernels don't decompose their lengths.
 
 import argparse
 import collections
+import copy
 import functools
 import itertools
 import os
@@ -583,7 +584,7 @@ def list_new_large_kernels():
         if not hasattr(k, 'length'):
             k.length = functools.reduce(lambda a, b: a * b, k.factors)
 
-    sbcr_kernels = sbcc_kernels
+    sbcr_kernels = copy.deepcopy(sbcc_kernels)
     for k in sbcr_kernels:
         k.scheme = 'CS_KERNEL_STOCKHAM_BLOCK_CR'
 
@@ -766,7 +767,7 @@ def cli():
     # which kernels by new-gen and which by old-gen? categorize input kernels
     #
     supported_new_small_kernels = list_new_kernels()
-    supported_new_large_kernels = list_new_large_kernels() # currently 'large' really is sbcc kernels only
+    supported_new_large_kernels = list_new_large_kernels()
     new_small_kernels = new_large_kernels = []
 
     # Don't subtract_from_all for large, since so far sbrc and transpose still rely on old-gen.
