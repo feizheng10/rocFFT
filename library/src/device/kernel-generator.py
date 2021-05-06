@@ -416,6 +416,11 @@ class POWX_LARGE_SBCC_GENERATOR(POWX_SMALL_GENERATOR):
     def __str__(self):
         return f'POWX_LARGE_SBCC_GENERATOR({cjoin(self.args)});'
 
+@name_args(['name', 'op_fwd', 'op_inv', 'precision'])
+class POWX_LARGE_SBCR_GENERATOR(POWX_SMALL_GENERATOR):
+    def __str__(self):
+        return f'POWX_LARGE_SBCR_GENERATOR({cjoin(self.args)});'
+
 
 def kernel_file_name(ns):
     """Given kernel info namespace, return reasonable file name."""
@@ -428,6 +433,8 @@ def kernel_file_name(ns):
         postfix = '_sbcc'
     elif ns.scheme == 'CS_KERNEL_STOCKHAM_BLOCK_RC':
         postfix = '_sbrc'
+    elif ns.scheme == 'CS_KERNEL_STOCKHAM_BLOCK_CR':
+        postfix = '_sbcr'
 
     return f'rocfft_len{length}{postfix}.cpp'
 
@@ -556,7 +563,7 @@ def list_new_kernels():
 def list_new_large_kernels():
     """Return list of large kernels to generate with the new generator."""
 
-    kernels = [
+    sbcc_kernels = [
         NS(length=50,  factors=[10, 5],      use_3steps_large_twd={'sp': 'true',  'dp': 'true'}, threads_per_block=256),
         NS(length=64,  factors=[8, 8],       use_3steps_large_twd={'sp': 'true',  'dp': 'false'}),
         NS(length=81,  factors=[3, 3, 3, 3], use_3steps_large_twd={'sp': 'true',  'dp': 'true'}),
@@ -569,14 +576,18 @@ def list_new_large_kernels():
     # for SBCC kernel, increase desired threads_per_block so that columns per
     # thread block is also increased. currently targeting for 16 columns
     block_width = 16
-    for k in kernels:
+    for k in sbcc_kernels:
         k.scheme = 'CS_KERNEL_STOCKHAM_BLOCK_CC'
         if not hasattr(k, 'threads_per_block'):
             k.threads_per_block = block_width * reduce(mul, k.factors, 1) // min(k.factors)
         if not hasattr(k, 'length'):
             k.length = functools.reduce(lambda a, b: a * b, k.factors)
-    return kernels
 
+    sbcr_kernels = sbcc_kernels
+    for k in sbcr_kernels:
+        k.scheme = 'CS_KERNEL_STOCKHAM_BLOCK_CR'
+
+    return sbcc_kernels + sbcr_kernels
 
 def generate_kernel(kernel, precisions):
     """Generate a single kernel file for 'kernel'.
@@ -623,6 +634,9 @@ def generate_kernel(kernel, precisions):
         elif kglobal.meta.scheme == 'CS_KERNEL_STOCKHAM_BLOCK_CC':
             prototype = POWX_LARGE_SBCC_GENERATOR(f'rocfft_internal_dfn_{p}_ci_ci_sbcc_{length}',
                                     'ip_' + forward, 'ip_' + inverse,
+                                    'op_' + forward, 'op_' + inverse, typename_dict[p])
+        elif kglobal.meta.scheme == 'CS_KERNEL_STOCKHAM_BLOCK_CR':
+            prototype = POWX_LARGE_SBCR_GENERATOR(f'rocfft_internal_dfn_{p}_ci_ci_sbcr_{length}',
                                     'op_' + forward, 'op_' + inverse, typename_dict[p])
         else:
             raise NotImplementedError(f'Unable to generate host functions for scheme {kglobal.meta.scheme}.')
