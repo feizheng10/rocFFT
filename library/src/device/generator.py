@@ -319,7 +319,7 @@ class InlineDeclaration(BaseNode):
         return s
 
 
-@name_args(['name', 'type', 'size', 'value', 'shared', 'pointer'])
+@name_args(['name', 'type', 'size', 'value', 'shared', 'pointer', 'post_qualifier'])
 class Declaration(BaseNode):
     def __str__(self):
         s = ''
@@ -327,10 +327,16 @@ class Declaration(BaseNode):
             s += 'extern '
         if self.shared:
             s += '__shared__ '
+        s += f'{self.type}'
+
         if self.pointer:
-            s += f'{self.type} * {self.name}'
-        else:
-            s += f'{self.type} {self.name}'
+            s += f' *'
+
+        if self.post_qualifier is not None:
+            s += f' {self.post_qualifier}'
+
+        s += f' {self.name}'
+
         if self.size is not None:
             if self.size == 'dynamic':
                 s += f'[]'
@@ -620,8 +626,8 @@ class Variable(BaseNodeOps):
 
     def declaration(self):
         if self.size is not None:
-            return Declaration(self.name, self.type, size=self.size, value=self.value, shared=self.shared, pointer=self.pointer)
-        return Declaration(self.name, self.type, value=self.value, shared=self.shared, pointer=self.pointer)
+            return Declaration(self.name, self.type, size=self.size, value=self.value, shared=self.shared, pointer=self.pointer, post_qualifier=self.post_qualifier)
+        return Declaration(self.name, self.type, value=self.value, shared=self.shared, pointer=self.pointer, post_qualifier=self.post_qualifier)
 
     def inline(self, value):
         return InlineDeclaration(self.name, self.type, value)

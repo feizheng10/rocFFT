@@ -99,10 +99,10 @@ def common_variables(length, params, nregisters):
         nbatch      = Variable('nbatch', 'const size_t'),
         # locals
         lds_uchar   = Variable('lds_uchar', 'unsigned char',
-                              size='dynamic',
-                              array=True, restrict=True, shared=True),
+                              size='dynamic',  post_qualifier='__align__(sizeof(scalar_type))',
+                              array=True, shared=True),
         lds         = Variable('lds', 'scalar_type', array=True, restrict=True, pointer=True,
-                               value = 'reinterpret_cast<scalar_type *>(lds_uchar)'),
+                               value = 'reinterpret_cast<scalar_type *>(lds_uchar)'), # FIXME: do it in AST properly
         block_id    = Variable('blockIdx.x'),
         thread_id   = Variable('threadIdx.x'),
         thread      = Variable('thread', 'size_t'),
