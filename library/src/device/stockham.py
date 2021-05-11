@@ -98,17 +98,19 @@ def common_variables(length, params, nregisters):
         stride      = Variable('stride', 'const size_t', array=True, restrict=True),
         nbatch      = Variable('nbatch', 'const size_t'),
         # locals
-        lds        = Variable('lds', 'scalar_type',
+        lds_uchar   = Variable('lds_uchar', 'unsigned char',
                               size='dynamic',
                               array=True, restrict=True, shared=True),
-        block_id   = Variable('blockIdx.x'),
-        thread_id  = Variable('threadIdx.x'),
-        thread     = Variable('thread', 'size_t'),
-        offset     = Variable('offset', 'size_t', value=0),
-        offset_lds = Variable('offset_lds', 'unsigned int'),
-        batch      = Variable('batch', 'size_t'),
-        transform  = Variable('transform', 'size_t'),
-        stride0    = Variable('stride0', 'const size_t'),
+        lds         = Variable('lds', 'scalar_type', array=True, restrict=True,
+                               value = 'reinterpret_cast<scalar_type *>(lds_uchar)'),
+        block_id    = Variable('blockIdx.x'),
+        thread_id   = Variable('threadIdx.x'),
+        thread      = Variable('thread', 'size_t'),
+        offset      = Variable('offset', 'size_t', value=0),
+        offset_lds  = Variable('offset_lds', 'unsigned int'),
+        batch       = Variable('batch', 'size_t'),
+        transform   = Variable('transform', 'size_t'),
+        stride0     = Variable('stride0', 'const size_t'),
         # device
         W      = Variable('W', 'scalar_type'),
         t      = Variable('t', 'scalar_type'),
@@ -516,7 +518,7 @@ class StockhamKernel:
             f'  uses {params.threads_per_transform} threads per transform',
             f'  does {params.transforms_per_block} transforms per thread block',
             f'therefore it should be called with {params.threads_per_block} threads per thread block')
-        body += Declarations(kvars.lds, kvars.offset, kvars.offset_lds, kvars.batch, kvars.transform, kvars.thread)
+        body += Declarations(kvars.lds_uchar, kvars.lds, kvars.offset, kvars.offset_lds, kvars.batch, kvars.transform, kvars.thread)
         body += Declaration(kvars.stride0.name, kvars.stride0.type,
                             value=Ternary(kvars.sb == 'SB_UNIT', 1, kvars.stride[0]))
         body += CallbackDeclaration()
