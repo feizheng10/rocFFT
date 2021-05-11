@@ -101,7 +101,7 @@ def common_variables(length, params, nregisters):
         lds_uchar   = Variable('lds_uchar', 'unsigned char',
                               size='dynamic',
                               array=True, restrict=True, shared=True),
-        lds         = Variable('lds', 'scalar_type', array=True, restrict=True,
+        lds         = Variable('lds', 'scalar_type', array=True, restrict=True, pointer=True,
                                value = 'reinterpret_cast<scalar_type *>(lds_uchar)'),
         block_id    = Variable('blockIdx.x'),
         thread_id   = Variable('threadIdx.x'),
