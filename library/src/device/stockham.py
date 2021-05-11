@@ -99,7 +99,7 @@ def common_variables(length, params, nregisters):
         nbatch      = Variable('nbatch', 'const size_t'),
         # locals
         lds        = Variable('lds', 'scalar_type',
-                              size=length * params.transforms_per_block,
+                              size='dynamic',
                               array=True, restrict=True, shared=True),
         block_id   = Variable('blockIdx.x'),
         thread_id  = Variable('threadIdx.x'),
