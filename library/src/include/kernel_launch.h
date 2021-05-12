@@ -268,7 +268,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 hipLaunchKernelGGL(kernel_func,                                               \
                                    dim3(data->gridParam.b_x),                                 \
                                    dim3(data->gridParam.tpb_x),                               \
-                                   0,                                                         \
+                                   data->gridParam.lds_bytes,                                 \
                                    rocfft_stream,                                             \
                                    (PRECISION*)data->node->twiddles.data(),                   \
                                    data->node->length.size(),                                 \
@@ -294,7 +294,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 hipLaunchKernelGGL(kernel_func,                                               \
                                    dim3(data->gridParam.b_x),                                 \
                                    dim3(data->gridParam.tpb_x),                               \
-                                   0,                                                         \
+                                   data->gridParam.lds_bytes,                                 \
                                    rocfft_stream,                                             \
                                    (PRECISION*)data->node->twiddles.data(),                   \
                                    data->node->length.size(),                                 \
@@ -324,7 +324,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 hipLaunchKernelGGL(kernel_func,                                               \
                                    dim3(data->gridParam.b_x),                                 \
                                    dim3(data->gridParam.tpb_x),                               \
-                                   0,                                                         \
+                                   data->gridParam.lds_bytes,                                 \
                                    rocfft_stream,                                             \
                                    (PRECISION*)data->node->twiddles.data(),                   \
                                    data->node->length.size(),                                 \
@@ -353,7 +353,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 hipLaunchKernelGGL(kernel_func,                                               \
                                    dim3(data->gridParam.b_x),                                 \
                                    dim3(data->gridParam.tpb_x),                               \
-                                   0,                                                         \
+                                   data->gridParam.lds_bytes,                                 \
                                    rocfft_stream,                                             \
                                    (PRECISION*)data->node->twiddles.data(),                   \
                                    data->node->length.size(),                                 \
@@ -383,7 +383,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 hipLaunchKernelGGL(kernel_func,                                               \
                                    dim3(data->gridParam.b_x),                                 \
                                    dim3(data->gridParam.tpb_x),                               \
-                                   0,                                                         \
+                                   data->gridParam.lds_bytes,                                 \
                                    rocfft_stream,                                             \
                                    (PRECISION*)data->node->twiddles.data(),                   \
                                    data->node->length.size(),                                 \
@@ -414,7 +414,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 hipLaunchKernelGGL(kernel_func,                                               \
                                    dim3(data->gridParam.b_x),                                 \
                                    dim3(data->gridParam.tpb_x),                               \
-                                   0,                                                         \
+                                   data->gridParam.lds_bytes,                                 \
                                    rocfft_stream,                                             \
                                    (PRECISION*)data->node->twiddles.data(),                   \
                                    data->node->length.size(),                                 \
@@ -461,7 +461,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 hipLaunchKernelGGL(kernel_func,                                               \
                                    dim3(data->gridParam.b_x),                                 \
                                    dim3(data->gridParam.tpb_x),                               \
-                                   0,                                                         \
+                                   data->gridParam.lds_bytes,                                 \
                                    rocfft_stream,                                             \
                                    (PRECISION*)data->node->twiddles.data(),                   \
                                    (PRECISION*)data->node->twiddles_large.data(),             \
@@ -488,7 +488,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 hipLaunchKernelGGL(kernel_func,                                               \
                                    dim3(data->gridParam.b_x),                                 \
                                    dim3(data->gridParam.tpb_x),                               \
-                                   0,                                                         \
+                                   data->gridParam.lds_bytes,                                 \
                                    rocfft_stream,                                             \
                                    (PRECISION*)data->node->twiddles.data(),                   \
                                    (PRECISION*)data->node->twiddles_large.data(),             \
@@ -519,7 +519,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 hipLaunchKernelGGL(kernel_func,                                               \
                                    dim3(data->gridParam.b_x),                                 \
                                    dim3(data->gridParam.tpb_x),                               \
-                                   0,                                                         \
+                                   data->gridParam.lds_bytes,                                 \
                                    rocfft_stream,                                             \
                                    (PRECISION*)data->node->twiddles.data(),                   \
                                    (PRECISION*)data->node->twiddles_large.data(),             \
@@ -549,7 +549,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 hipLaunchKernelGGL(kernel_func,                                               \
                                    dim3(data->gridParam.b_x),                                 \
                                    dim3(data->gridParam.tpb_x),                               \
-                                   0,                                                         \
+                                   data->gridParam.lds_bytes,                                 \
                                    rocfft_stream,                                             \
                                    (PRECISION*)data->node->twiddles.data(),                   \
                                    (PRECISION*)data->node->twiddles_large.data(),             \
@@ -580,7 +580,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 hipLaunchKernelGGL(kernel_func,                                               \
                                    dim3(data->gridParam.b_x),                                 \
                                    dim3(data->gridParam.tpb_x),                               \
-                                   0,                                                         \
+                                   data->gridParam.lds_bytes,                                 \
                                    rocfft_stream,                                             \
                                    (PRECISION*)data->node->twiddles.data(),                   \
                                    (PRECISION*)data->node->twiddles_large.data(),             \
@@ -612,7 +612,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 hipLaunchKernelGGL(kernel_func,                                               \
                                    dim3(data->gridParam.b_x),                                 \
                                    dim3(data->gridParam.tpb_x),                               \
-                                   0,                                                         \
+                                   data->gridParam.lds_bytes,                                 \
                                    rocfft_stream,                                             \
                                    (PRECISION*)data->node->twiddles.data(),                   \
                                    (PRECISION*)data->node->twiddles_large.data(),             \
