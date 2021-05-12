@@ -388,7 +388,7 @@ bool PlanPowX(ExecPlan& execPlan)
 
         gp.lds_bytes = (lds + lds_padding * bwd) * PrecisionWidth(execPlan.execSeq[0]->precision)
                        * sizeof(float2);
-        execPlan.execSeq[0]->lds_padding = lds_padding;
+        execPlan.execSeq[i]->lds_padding = lds_padding;
         execPlan.devFnCall.push_back(ptr);
         execPlan.gridParam.push_back(gp);
     }
