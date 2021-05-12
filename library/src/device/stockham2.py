@@ -481,17 +481,27 @@ class StockhamTilingCR(StockhamTiling):
         return stmts
 
     def store_to_global(self, length, params,
-                        thread=None, thread_id=None, stride0=None,
-                        buf=None, offset=None, lds=None, offset_lds=None,
+                        stride=None, stride0=None, lengths=None, buf=None, offset=None, lds=None,
                         **kwargs):
-        width  = params.threads_per_transform
-        height = length // width
+
+        edge, tid0, tid1 = self.edge, self.tid0, self.tid1
+        stripmine_w   = params.transforms_per_block
+        stripmine_h   = params.threads_per_block // stripmine_w
+        stride_lds    = length + kwargs.get('lds_padding', 0)  # XXX
+
         stmts = StatementList()
-        stmts += Assign(thread, thread_id % width)
-        for w in range(height):
-            idx = thread + w * width
-            stmts += StoreGlobal(buf, offset + B(idx) * stride0, lds[offset_lds + idx])
-        return If(thread < width, stmts)
+        offset_tile_rbuf = lambda i : tid0 * stride[1]  + B(tid1 + i * stripmine_h) * stride0
+        offset_tile_wlds = lambda i : tid1 * stride_lds + B(tid0 + i * stripmine_h) * 1
+        offset_tile_wbuf = offset_tile_rbuf
+        offset_tile_rlds = offset_tile_wlds
+        pred, tmp_stmts = StatementList(), StatementList()
+        pred = self.tile_index * params.transforms_per_block + tid1 < lengths[1]
+        for i in range(length // stripmine_h):
+            tmp_stmts += StoreGlobal(buf, offset + offset_tile_wbuf(i), lds[offset_tile_rlds(i)])
+        stmts += If(Not(edge), tmp_stmts)
+        stmts += If(edge, If(pred, tmp_stmts))
+
+        return stmts
 
 
 
