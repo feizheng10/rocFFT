@@ -228,6 +228,21 @@ bool PlanPowX(ExecPlan& execPlan)
                                       std::multiplies<size_t>());
             gp.tpb_x = wgs;
             break;
+        case CS_KERNEL_STOCKHAM_BLOCK_CR:
+        {
+            auto kernel = function_pool::get_kernel(fpkey(execPlan.execSeq[i]->length[0],
+                                                          execPlan.execSeq[0]->precision,
+                                                          CS_KERNEL_STOCKHAM_BLOCK_CR));
+            ptr         = kernel.device_function;
+            gp.b_x      = ((execPlan.execSeq[i]->length[1]) - 1) / kernel.batches_per_block + 1;
+            // repeat for higher dimensions + batch
+            gp.b_x *= std::accumulate(execPlan.execSeq[i]->length.begin() + 2,
+                                      execPlan.execSeq[i]->length.end(),
+                                      execPlan.execSeq[i]->batch,
+                                      std::multiplies<size_t>());
+            gp.tpb_x = kernel.threads_per_block;
+        }
+        break;
         case CS_KERNEL_STOCKHAM_TRANSPOSE_XY_Z:
         {
             GetBlockComputeTable(execPlan.execSeq[i]->length[0], bwd, wgs, lds);
