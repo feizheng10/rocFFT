@@ -79,7 +79,8 @@ bool PlanPowX(ExecPlan& execPlan)
             if(node->twiddles == nullptr)
                 return false;
         }
-        else if(node->scheme == CS_KERNEL_STOCKHAM_BLOCK_CC)
+        else if(node->scheme == CS_KERNEL_STOCKHAM_BLOCK_CC
+                || node->scheme == CS_KERNEL_STOCKHAM_BLOCK_CR)
         {
             auto kernel = function_pool::get_kernel(
                 fpkey(node->length[0], node->precision, CS_KERNEL_STOCKHAM_BLOCK_CC));
