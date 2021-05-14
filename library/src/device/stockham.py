@@ -950,4 +950,3 @@ def stockham(length, **kwargs):
     kglobal = kernel.generate_global_function(**kwargs)
 
     return kdevice, kglobal
-    
