@@ -84,7 +84,6 @@ def get_callback_args():
 
 def common_variables(length, params, nregisters):
     """Return namespace of common/frequent variables used in Stockham kernels."""
-    # AUDIT THESE
     kvars = NS(
         # templates
         scalar_type   = Variable('scalar_type', 'typename'),
