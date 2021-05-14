@@ -339,13 +339,6 @@ class Declaration(BaseNode):
         return s
 
 
-class CallbackDeclaration(BaseNode):
-    def __str__(self):
-        ret = 'auto load_cb = get_load_cb<scalar_type,cbtype>(load_cb_fn);'
-        ret += 'auto store_cb = get_store_cb<scalar_type,cbtype>(store_cb_fn);'
-        return ret
-
-
 def Declarations(*args):
     return [ x.declaration() for x in args ]
 

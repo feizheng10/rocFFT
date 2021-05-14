@@ -84,12 +84,11 @@ def get_callback_args():
 
 def common_variables(length, params, nregisters):
     """Return namespace of common/frequent variables used in Stockham kernels."""
-    # AUDIT THESE
     kvars = NS(
         # templates
-        scalar_type = Variable('scalar_type', 'typename'),
-        cbtype      = Variable('cbtype', 'CallbackType'),
-        sb          = Variable('sb', 'StrideBin'),
+        scalar_type   = Variable('scalar_type', 'typename'),
+        callback_type = Variable('cbtype', 'CallbackType'),
+        stride_type   = Variable('sb', 'StrideBin'),
         # arguments
         buf         = Variable('buf', 'scalar_type', array=True, restrict=True),
         twiddles    = Variable('twiddles', 'const scalar_type', array=True, restrict=True),
@@ -116,6 +115,13 @@ def common_variables(length, params, nregisters):
         R      = Variable('R', 'scalar_type', size=nregisters),
     )
     return kvars, kvars.__dict__
+
+
+class CallbackDeclaration(BaseNode):
+    def __str__(self):
+        ret = 'auto load_cb = get_load_cb<scalar_type,cbtype>(load_cb_fn);'
+        ret += 'auto store_cb = get_store_cb<scalar_type,cbtype>(store_cb_fn);'
+        return ret
 
 
 #
@@ -475,7 +481,7 @@ class StockhamKernel:
         self.kwargs = kwargs
 
     def templates(self, kvars, **kwvars):
-        templates = TemplateList(kvars.scalar_type, kvars.sb, kvars.cbtype)
+        templates = TemplateList(kvars.scalar_type, kvars.stride_type, kvars.callback_type)
         templates = self.large_twiddles.add_templates(templates, **kwvars)
         templates = self.tiling.add_templates(templates, **kwvars)
         return templates
@@ -520,7 +526,7 @@ class StockhamKernel:
             f'therefore it should be called with {params.threads_per_block} threads per thread block')
         body += Declarations(kvars.lds, kvars.offset, kvars.offset_lds, kvars.batch, kvars.transform, kvars.thread)
         body += Declaration(kvars.stride0.name, kvars.stride0.type,
-                            value=Ternary(kvars.sb == 'SB_UNIT', 1, kvars.stride[0]))
+                            value=Ternary(kvars.stride_type == 'SB_UNIT', 1, kvars.stride[0]))
         body += CallbackDeclaration()
 
         body += LineBreak()
@@ -852,17 +858,17 @@ def stockham_launch(factors, **kwargs):
     params = get_launch_params(factors, **kwargs)
 
     # arguments
-    scalar_type = Variable('scalar_type', 'typename')
-    cbtype      = Variable('CallbackType::NONE', 'CallbackType')
-    sb          = Variable('SB_UNIT', 'StrideBin')
-    inout       = Variable('inout', 'scalar_type', array=True)
-    twiddles    = Variable('twiddles', 'const scalar_type', array=True)
-    stride_in   = Variable('stride_in', 'size_t')
-    stride_out  = Variable('stride_out', 'size_t')
-    nbatch      = Variable('nbatch', 'size_t')
+    scalar_type   = Variable('scalar_type', 'typename')
+    callback_type = Variable('CallbackType::NONE', 'CallbackType')
+    stride_type   = Variable('SB_UNIT', 'StrideBin')
+    inout         = Variable('inout', 'scalar_type', array=True)
+    twiddles      = Variable('twiddles', 'const scalar_type', array=True)
+    stride_in     = Variable('stride_in', 'size_t')
+    stride_out    = Variable('stride_out', 'size_t')
+    nbatch        = Variable('nbatch', 'size_t')
     lds_padding = Variable('lds_padding', 'unsigned int')
-    kargs       = Variable('kargs', 'size_t*')
-    null        = Variable('nullptr', 'void*')
+    kargs         = Variable('kargs', 'size_t*')
+    null          = Variable('nullptr', 'void*')
 
     # locals
     nblocks = Variable('nblocks', 'int')
@@ -872,7 +878,7 @@ def stockham_launch(factors, **kwargs):
     body += Assign(nblocks, B(nbatch + (params.transforms_per_block - 1)) / params.transforms_per_block)
     body += Call(f'forward_length{length}_SBRR',
                  arguments = ArgumentList(twiddles, 1, kargs, kargs + 1, nbatch, lds_padding, null, null, 0, null, null, inout),
-                 templates = TemplateList(scalar_type, sb, cbtype),
+                 templates = TemplateList(scalar_type, stride_type, callback_type),
                  launch_params = ArgumentList(nblocks, params.threads_per_block))
 
     return Function(name = f'forward_length{length}_launch',
@@ -944,8 +950,4 @@ def stockham(length, **kwargs):
     kglobal = kernel.generate_global_function(**kwargs)
 
     return kdevice, kglobal
-
-
-if __name__ == '__main__':
-    kdevice, kglobal = stockham(64, factors=[8,8], scheme='CS_KERNEL_STOCKHAM_BLOCK_RC', threads_per_block=128)
-    print(format(kglobal))
+    
