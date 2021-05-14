@@ -94,6 +94,7 @@ enum ComputeScheme
     CS_3D_TRTRTR,
     CS_3D_RTRT,
     CS_3D_BLOCK_RC,
+    CS_3D_BLOCK_CR,
     CS_3D_RC,
     CS_KERNEL_3D_STOCKHAM_BLOCK_CC,
     CS_KERNEL_3D_SINGLE
@@ -250,6 +251,7 @@ public:
     // transpose, falls back to separate kernels for row FFTs +
     // transpose XY_Z when not possible.
     void build_CS_3D_BLOCK_RC();
+    void build_CS_3D_BLOCK_CR();
 
     // State maintained while traversing the tree.
     //
@@ -323,6 +325,10 @@ public:
                                        OperatingBuffer& flipIn,
                                        OperatingBuffer& flipOut,
                                        OperatingBuffer& obOutBuf);
+    void assign_buffers_CS_3D_BLOCK_CR(TraverseState&   state,
+                                       OperatingBuffer& flipIn,
+                                       OperatingBuffer& flipOut,
+                                       OperatingBuffer& obOutBuf);
 
     // Set placement variable and in/out array types
     void TraverseTreeAssignPlacementsLogicA(rocfft_array_type rootIn, rocfft_array_type rootOut);
@@ -341,6 +347,7 @@ public:
     void assign_params_CS_2D_RC_STRAIGHT();
     void assign_params_CS_3D_RTRT();
     void assign_params_CS_3D_BLOCK_RC();
+    void assign_params_CS_3D_BLOCK_CR();
     void assign_params_CS_3D_TRTRTR();
     void assign_params_CS_3D_RC_STRAIGHT();
 

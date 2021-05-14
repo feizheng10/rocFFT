@@ -99,6 +99,7 @@ std::string PrintScheme(ComputeScheme cs)
            {ENUMSTR(CS_3D_TRTRTR)},
            {ENUMSTR(CS_3D_RTRT)},
            {ENUMSTR(CS_3D_BLOCK_RC)},
+           {ENUMSTR(CS_3D_BLOCK_CR)},
            {ENUMSTR(CS_3D_RC)},
            {ENUMSTR(CS_KERNEL_3D_STOCKHAM_BLOCK_CC)},
            {ENUMSTR(CS_KERNEL_3D_SINGLE)}};
@@ -2170,6 +2171,8 @@ void TreeNode::build_CS_3D_BLOCK_RC()
     }
 }
 
+void TreeNode::build_CS_3D_BLOCK_CR() {}
+
 struct TreeNode::TraverseState
 {
     TraverseState(const ExecPlan& execPlan)
@@ -2326,6 +2329,9 @@ void TreeNode::TraverseTreeAssignBuffersLogicA(TraverseState&   state,
         break;
     case CS_3D_BLOCK_RC:
         assign_buffers_CS_3D_BLOCK_RC(state, flipIn, flipOut, obOutBuf);
+        break;
+    case CS_3D_BLOCK_CR:
+        assign_buffers_CS_3D_BLOCK_CR(state, flipIn, flipOut, obOutBuf);
         break;
     default:
         if(parent == nullptr)
@@ -3047,6 +3053,43 @@ void TreeNode::assign_buffers_CS_3D_BLOCK_RC(TraverseState&   state,
     childNodes.back()->outArrayType = outArrayType;
 }
 
+void TreeNode::assign_buffers_CS_3D_BLOCK_CR(TraverseState&   state,
+                                             OperatingBuffer& flipIn,
+                                             OperatingBuffer& flipOut,
+                                             OperatingBuffer& obOutBuf)
+{
+    assert(scheme == CS_3D_BLOCK_CR);
+
+    for(size_t i = 0; i < childNodes.size(); ++i)
+    {
+        auto& node = childNodes[i];
+        node->SetInputBuffer(state);
+        node->inArrayType = (i == 0) ? inArrayType : childNodes[i - 1]->outArrayType;
+        node->obOut       = flipOut == OB_USER_OUT && placement == rocfft_placement_notinplace
+                                ? OB_USER_IN
+                                : flipOut;
+
+        // temp is interleaved, in/out might not be
+        switch(node->obOut)
+        {
+        case OB_USER_IN:
+            node->outArrayType = inArrayType;
+            break;
+        case OB_USER_OUT:
+            node->outArrayType = outArrayType;
+            break;
+        default:
+            node->outArrayType = rocfft_array_type_complex_interleaved;
+        }
+
+        node->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
+    }
+
+    obOut                           = obOutBuf;
+    childNodes.back()->obOut        = obOut;
+    childNodes.back()->outArrayType = outArrayType;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 /// Set placement variable and in/out array types, if not already set.
 void TreeNode::TraverseTreeAssignPlacementsLogicA(const rocfft_array_type rootIn,
@@ -3215,6 +3258,9 @@ void TreeNode::TraverseTreeAssignParamsLogicA()
         break;
     case CS_3D_BLOCK_RC:
         assign_params_CS_3D_BLOCK_RC();
+        break;
+    case CS_3D_BLOCK_CR:
+        assign_params_CS_3D_BLOCK_CR();
         break;
     case CS_3D_RC:
     case CS_3D_STRAIGHT:
@@ -4339,6 +4385,8 @@ void TreeNode::assign_params_CS_3D_BLOCK_RC()
     childNodes.back()->outStride = outStride;
     childNodes.back()->oDist     = oDist;
 }
+
+void TreeNode::assign_params_CS_3D_BLOCK_CR() {}
 
 void TreeNode::assign_params_CS_3D_RC_STRAIGHT()
 {
