@@ -919,6 +919,11 @@ void TreeNode::RecursiveBuildTree()
             build_CS_3D_BLOCK_RC();
         }
         break;
+        case CS_3D_BLOCK_CR:
+        {
+            build_CS_3D_BLOCK_CR();
+        }
+        break;
         case CS_3D_RC:
         {
             // 2d fft
@@ -2171,7 +2176,22 @@ void TreeNode::build_CS_3D_BLOCK_RC()
     }
 }
 
-void TreeNode::build_CS_3D_BLOCK_CR() {}
+void TreeNode::build_CS_3D_BLOCK_CR()
+{
+    scheme                         = CS_3D_BLOCK_CR;
+    std::vector<size_t> cur_length = length;
+
+    for(int i = 0; i < 3; ++i)
+    {
+        auto node = TreeNode::CreateNode(this);
+        node->length.push_back(cur_length[2]);
+        node->length.push_back(cur_length[0] * cur_length[1]);
+        node->scheme = CS_KERNEL_STOCKHAM_BLOCK_CR;
+        childNodes.emplace_back(std::move(node));
+        std::swap(cur_length[1], cur_length[2]);
+        std::swap(cur_length[2], cur_length[0]);
+    }
+}
 
 struct TreeNode::TraverseState
 {
@@ -4386,7 +4406,35 @@ void TreeNode::assign_params_CS_3D_BLOCK_RC()
     childNodes.back()->oDist     = oDist;
 }
 
-void TreeNode::assign_params_CS_3D_BLOCK_CR() {}
+void TreeNode::assign_params_CS_3D_BLOCK_CR()
+{
+    assert(scheme == CS_3D_BLOCK_CR);
+
+    childNodes[0]->inStride.push_back(inStride[2]);
+    childNodes[0]->inStride.push_back(inStride[0]);
+    childNodes[0]->iDist = iDist;
+
+    childNodes[0]->outStride.push_back(1);
+    childNodes[0]->outStride.push_back(childNodes[0]->length[0]);
+    childNodes[0]->oDist = childNodes[0]->outStride[1] * childNodes[0]->length[1];
+
+    childNodes[1]->inStride.push_back(childNodes[1]->length[1]);
+    childNodes[1]->inStride.push_back(1);
+    childNodes[1]->iDist = childNodes[0]->oDist;
+
+    childNodes[1]->outStride.push_back(1);
+    childNodes[1]->outStride.push_back(childNodes[1]->length[0]);
+    childNodes[1]->oDist = childNodes[1]->outStride[1] * childNodes[1]->length[1];
+
+    childNodes[2]->inStride.push_back(childNodes[2]->length[1]);
+    childNodes[2]->inStride.push_back(1);
+    childNodes[2]->iDist = childNodes[1]->oDist;
+
+    // FIXME: with the outStride
+    childNodes[2]->outStride.push_back(1);
+    childNodes[2]->outStride.push_back(childNodes[2]->length[0]);
+    childNodes[2]->oDist = oDist;
+}
 
 void TreeNode::assign_params_CS_3D_RC_STRAIGHT()
 {
