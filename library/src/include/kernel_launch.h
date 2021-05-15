@@ -245,11 +245,22 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
     GET_KERNEL_FUNC_CBTYPE_SBRC(FWD, BACK, PRECISION, COL_DIM, TRANSPOSE_TYPE, CallbackType::NONE)
 
 // SBCR is always out-of-place
-#define GET_KERNEL_FUNC_CBTYPE_SBCR(FWD, BACK, PRECISION, CBTYPE) \
-    if(data->node->direction == -1)                               \
-        kernel_func = FWD<PRECISION, SB_UNIT, CBTYPE>;            \
-    else                                                          \
-        kernel_func = BACK<PRECISION, SB_UNIT, CBTYPE>;
+#define GET_KERNEL_FUNC_CBTYPE_SBCR(FWD, BACK, PRECISION, CBTYPE)     \
+    if(data->node->inStride[0] == 1 && data->node->outStride[0] == 1) \
+    {                                                                 \
+        if(data->node->direction == -1)                               \
+            kernel_func = FWD<PRECISION, SB_UNIT, CBTYPE>;            \
+        else                                                          \
+            kernel_func = BACK<PRECISION, SB_UNIT, CBTYPE>;           \
+    }                                                                 \
+    else                                                              \
+    {                                                                 \
+        if(data->node->direction == -1)                               \
+            kernel_func = FWD<PRECISION, SB_NONUNIT, CBTYPE>;         \
+        else                                                          \
+            kernel_func = BACK<PRECISION, SB_NONUNIT, CBTYPE>;        \
+    }
+
 #define GET_KERNEL_FUNC_SBCR_CB(FWD, BACK, PRECISION, BASE_ARGS, ...)         \
     void (*kernel_func)(BASE_ARGS(PRECISION), __VA_ARGS__) = nullptr;         \
     if(data->get_callback_type() == CallbackType::NONE)                       \
