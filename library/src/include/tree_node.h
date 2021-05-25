@@ -99,12 +99,6 @@ enum ComputeScheme
     CS_KERNEL_3D_SINGLE
 };
 
-enum TransTileDir
-{
-    TTD_IP_HOR,
-    TTD_IP_VER,
-};
-
 class TreeNode
 {
 private:
@@ -182,9 +176,6 @@ public:
     OperatingBuffer obIn = OB_UNINIT, obOut = OB_UNINIT;
 
     // FIXME: document
-    TransTileDir transTileDir = TTD_IP_HOR;
-
-    // FIXME: document
     size_t lengthBlue = 0;
 
     // Device pointers:
@@ -219,6 +210,8 @@ public:
     // how many SBRC kernels can we put into a 3D transform?
     size_t count_3D_SBRC_nodes();
 
+    bool use_CS_3D_RC();
+
     //To determine fusing CS_KERNEL_STOCKHAM and following CS_KERNEL_TRANSPOSE_Z_XY
     bool use_CS_KERNEL_TRANSPOSE_Z_XY();
 
@@ -250,6 +243,11 @@ public:
     // transpose, falls back to separate kernels for row FFTs +
     // transpose XY_Z when not possible.
     void build_CS_3D_BLOCK_RC();
+    // 3D 2 node builder, R: 2D FFTs, C: SBCC
+    // 2D FFTs could be 2D_SINGLE: results in one 2DFFT + one SBCC, or
+    //                  2D_RC: result in (one row FFT + one SBCC) + one SBCC, or
+    //                  2D_RTRT: ...
+    void build_CS_3D_RC();
 
     // State maintained while traversing the tree.
     //
