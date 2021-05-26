@@ -79,9 +79,9 @@ enum StrideBin
     SB_NONUNIT,
 };
 
-enum EmbeddedType
+enum class EmbeddedType
 {
-    NOMRMAL, // Works as the regular complex to complex FFT kernel
+    NONE, // Works as the regular complex to complex FFT kernel
     Real2C_POST, // Works with even-length real2complex post-processing
     C2Real_PRE, // Works with even-length complex2real pre-processing
 };

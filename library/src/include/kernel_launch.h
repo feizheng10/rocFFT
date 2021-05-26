@@ -272,7 +272,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 GET_KERNEL_FUNC_CB(IP_FWD_KERN_NAME,                                          \
                                    IP_BACK_KERN_NAME,                                         \
                                    PRECISION,                                                 \
-                                   EmbeddedType::NOMRMAL,                                     \
+                                   EmbeddedType::NONE,                                        \
                                    KERNEL_BASE_ARGS_IP,                                       \
                                    PRECISION* __restrict__);                                  \
                 hipLaunchKernelGGL(kernel_func,                                               \
@@ -298,7 +298,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 GET_KERNEL_FUNC(IP_FWD_KERN_NAME,                                             \
                                 IP_BACK_KERN_NAME,                                            \
                                 PRECISION,                                                    \
-                                EmbeddedType::NOMRMAL,                                        \
+                                EmbeddedType::NONE,                                           \
                                 KERNEL_BASE_ARGS_IP,                                          \
                                 real_type_t<PRECISION>* __restrict__,                         \
                                 real_type_t<PRECISION>* __restrict__);                        \
@@ -329,7 +329,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 GET_KERNEL_FUNC_CB(OP_FWD_KERN_NAME,                                          \
                                    OP_BACK_KERN_NAME,                                         \
                                    PRECISION,                                                 \
-                                   EmbeddedType::NOMRMAL,                                     \
+                                   EmbeddedType::NONE,                                        \
                                    KERNEL_BASE_ARGS_OP,                                       \
                                    PRECISION* __restrict__,                                   \
                                    PRECISION* __restrict__);                                  \
@@ -358,7 +358,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 GET_KERNEL_FUNC(OP_FWD_KERN_NAME,                                             \
                                 OP_BACK_KERN_NAME,                                            \
                                 PRECISION,                                                    \
-                                EmbeddedType::NOMRMAL,                                        \
+                                EmbeddedType::NONE,                                           \
                                 KERNEL_BASE_ARGS_OP,                                          \
                                 PRECISION* __restrict__,                                      \
                                 real_type_t<PRECISION>* __restrict__,                         \
@@ -389,7 +389,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 GET_KERNEL_FUNC(OP_FWD_KERN_NAME,                                             \
                                 OP_BACK_KERN_NAME,                                            \
                                 PRECISION,                                                    \
-                                EmbeddedType::NOMRMAL,                                        \
+                                EmbeddedType::NONE,                                           \
                                 KERNEL_BASE_ARGS_OP,                                          \
                                 real_type_t<PRECISION>* __restrict__,                         \
                                 real_type_t<PRECISION>* __restrict__,                         \
@@ -420,7 +420,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 GET_KERNEL_FUNC(OP_FWD_KERN_NAME,                                             \
                                 OP_BACK_KERN_NAME,                                            \
                                 PRECISION,                                                    \
-                                EmbeddedType::NOMRMAL,                                        \
+                                EmbeddedType::NONE,                                           \
                                 KERNEL_BASE_ARGS_OP,                                          \
                                 real_type_t<PRECISION>* __restrict__,                         \
                                 real_type_t<PRECISION>* __restrict__,                         \
@@ -471,7 +471,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 GET_KERNEL_FUNC_SBCC_CB(IP_FWD_KERN_NAME,                                     \
                                         IP_BACK_KERN_NAME,                                    \
                                         PRECISION,                                            \
-                                        EmbeddedType::NOMRMAL,                                \
+                                        EmbeddedType::NONE,                                   \
                                         KERNEL_BASE_ARGS_IP_SBCC,                             \
                                         PRECISION* __restrict__);                             \
                 hipLaunchKernelGGL(kernel_func,                                               \
@@ -498,7 +498,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 GET_KERNEL_FUNC_SBCC(IP_FWD_KERN_NAME,                                        \
                                      IP_BACK_KERN_NAME,                                       \
                                      PRECISION,                                               \
-                                     EmbeddedType::NOMRMAL,                                   \
+                                     EmbeddedType::NONE,                                      \
                                      KERNEL_BASE_ARGS_IP_SBCC,                                \
                                      real_type_t<PRECISION>* __restrict__,                    \
                                      real_type_t<PRECISION>* __restrict__);                   \
@@ -530,7 +530,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 GET_KERNEL_FUNC_SBCC_CB(OP_FWD_KERN_NAME,                                     \
                                         OP_BACK_KERN_NAME,                                    \
                                         PRECISION,                                            \
-                                        EmbeddedType::NOMRMAL,                                \
+                                        EmbeddedType::NONE,                                   \
                                         KERNEL_BASE_ARGS_OP_SBCC,                             \
                                         PRECISION* __restrict__,                              \
                                         PRECISION* __restrict__);                             \
@@ -560,7 +560,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 GET_KERNEL_FUNC_SBCC(OP_FWD_KERN_NAME,                                        \
                                      OP_BACK_KERN_NAME,                                       \
                                      PRECISION,                                               \
-                                     EmbeddedType::NOMRMAL,                                   \
+                                     EmbeddedType::NONE,                                      \
                                      KERNEL_BASE_ARGS_OP_SBCC,                                \
                                      PRECISION* __restrict__,                                 \
                                      real_type_t<PRECISION>* __restrict__,                    \
@@ -592,7 +592,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 GET_KERNEL_FUNC_SBCC(OP_FWD_KERN_NAME,                                        \
                                      OP_BACK_KERN_NAME,                                       \
                                      PRECISION,                                               \
-                                     EmbeddedType::NOMRMAL,                                   \
+                                     EmbeddedType::NONE,                                      \
                                      KERNEL_BASE_ARGS_OP_SBCC,                                \
                                      real_type_t<PRECISION>* __restrict__,                    \
                                      real_type_t<PRECISION>* __restrict__,                    \
@@ -624,7 +624,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 GET_KERNEL_FUNC_SBCC(OP_FWD_KERN_NAME,                                        \
                                      OP_BACK_KERN_NAME,                                       \
                                      PRECISION,                                               \
-                                     EmbeddedType::NOMRMAL,                                   \
+                                     EmbeddedType::NONE,                                      \
                                      KERNEL_BASE_ARGS_OP_SBCC,                                \
                                      real_type_t<PRECISION>* __restrict__,                    \
                                      real_type_t<PRECISION>* __restrict__,                    \
@@ -672,7 +672,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                                     PRECISION,                                            \
                                     COL_DIM,                                              \
                                     TRANSPOSE_TYPE,                                       \
-                                    EmbeddedType::NOMRMAL,                                \
+                                    EmbeddedType::NONE,                                   \
                                     KERNEL_BASE_ARGS_OP,                                  \
                                     PRECISION* __restrict__,                              \
                                     PRECISION* __restrict__);                             \
@@ -703,7 +703,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                                  PRECISION,                                               \
                                  COL_DIM,                                                 \
                                  TRANSPOSE_TYPE,                                          \
-                                 EmbeddedType::NOMRMAL,                                   \
+                                 EmbeddedType::NONE,                                      \
                                  KERNEL_BASE_ARGS_OP,                                     \
                                  PRECISION* __restrict__,                                 \
                                  real_type_t<PRECISION>* __restrict__,                    \
@@ -736,7 +736,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                                  PRECISION,                                               \
                                  COL_DIM,                                                 \
                                  TRANSPOSE_TYPE,                                          \
-                                 EmbeddedType::NOMRMAL,                                   \
+                                 EmbeddedType::NONE,                                      \
                                  KERNEL_BASE_ARGS_OP,                                     \
                                  real_type_t<PRECISION>* __restrict__,                    \
                                  real_type_t<PRECISION>* __restrict__,                    \
@@ -769,7 +769,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                                  PRECISION,                                               \
                                  COL_DIM,                                                 \
                                  TRANSPOSE_TYPE,                                          \
-                                 EmbeddedType::NOMRMAL,                                   \
+                                 EmbeddedType::NONE,                                      \
                                  KERNEL_BASE_ARGS_OP,                                     \
                                  real_type_t<PRECISION>* __restrict__,                    \
                                  real_type_t<PRECISION>* __restrict__,                    \
