@@ -92,12 +92,13 @@ def common_variables(length, params, nregisters):
         embedded_type = Variable('ebtype', 'EmbeddedType'),
 
         # arguments
-        buf           = Variable('buf', 'scalar_type', array=True, restrict=True),
-        twiddles      = Variable('twiddles', 'const scalar_type', array=True, restrict=True),
-        dim           = Variable('dim', 'const size_t'),
-        lengths       = Variable('lengths', 'const size_t', array=True, restrict=True),
-        stride        = Variable('stride', 'const size_t', array=True, restrict=True),
-        nbatch        = Variable('nbatch', 'const size_t'),
+        buf         = Variable('buf', 'scalar_type', array=True, restrict=True),
+        twiddles    = Variable('twiddles', 'const scalar_type', array=True, restrict=True),
+        dim         = Variable('dim', 'const size_t'),
+        lengths     = Variable('lengths', 'const size_t', array=True, restrict=True),
+        stride      = Variable('stride', 'const size_t', array=True, restrict=True),
+        nbatch      = Variable('nbatch', 'const size_t'),
+        lds_padding = Variable('lds_padding', 'const unsigned int'),
         # locals
         lds_uchar     = Variable('lds_uchar', 'unsigned char',
                               size='dynamic',  post_qualifier='__align__(sizeof(scalar_type))',
@@ -503,7 +504,8 @@ class StockhamKernel:
 
     def global_arguments(self, kvars, **kwvars):
         cb_args = get_callback_args()
-        arguments = ArgumentList(kvars.twiddles, kvars.dim, kvars.lengths, kvars.stride, kvars.nbatch) + cb_args + ArgumentList(kvars.buf)
+        arguments = ArgumentList(kvars.twiddles, kvars.dim, kvars.lengths, kvars.stride, kvars.nbatch, kvars.lds_padding) \
+                  + cb_args + ArgumentList(kvars.buf)
         arguments = self.large_twiddles.add_global_arguments(arguments, **kwvars)
         arguments = self.tiling.add_global_arguments(arguments, **kwvars)
         return arguments
@@ -868,6 +870,7 @@ def stockham_launch(factors, **kwargs):
     stride_in     = Variable('stride_in', 'size_t')
     stride_out    = Variable('stride_out', 'size_t')
     nbatch        = Variable('nbatch', 'size_t')
+    lds_padding = Variable('lds_padding', 'unsigned int')
     kargs         = Variable('kargs', 'size_t*')
     null          = Variable('nullptr', 'void*')
 
@@ -878,13 +881,13 @@ def stockham_launch(factors, **kwargs):
     body += Declarations(nblocks)
     body += Assign(nblocks, B(nbatch + (params.transforms_per_block - 1)) / params.transforms_per_block)
     body += Call(f'forward_length{length}_SBRR',
-                 arguments = ArgumentList(twiddles, 1, kargs, kargs + 1, nbatch, null, null, 0, null, null, inout),
+                 arguments = ArgumentList(twiddles, 1, kargs, kargs + 1, nbatch, lds_padding, null, null, 0, null, null, inout),
                  templates = TemplateList(scalar_type, stride_type, callback_type),
                  launch_params = ArgumentList(nblocks, params.threads_per_block))
 
     return Function(name = f'forward_length{length}_launch',
                     templates = TemplateList(scalar_type),
-                    arguments = ArgumentList(inout, nbatch, twiddles, kargs, stride_in, stride_out),
+                    arguments = ArgumentList(inout, nbatch, lds_padding, twiddles, kargs, stride_in, stride_out),
                     body = body)
 
 
