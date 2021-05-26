@@ -90,24 +90,26 @@ def common_variables(length, params, nregisters):
         callback_type = Variable('cbtype', 'CallbackType'),
         stride_type   = Variable('sb', 'StrideBin'),
         # arguments
-        buf         = Variable('buf', 'scalar_type', array=True, restrict=True),
-        twiddles    = Variable('twiddles', 'const scalar_type', array=True, restrict=True),
-        dim         = Variable('dim', 'const size_t'),
-        lengths     = Variable('lengths', 'const size_t', array=True, restrict=True),
-        stride      = Variable('stride', 'const size_t', array=True, restrict=True),
-        nbatch      = Variable('nbatch', 'const size_t'),
+        buf           = Variable('buf', 'scalar_type', array=True, restrict=True),
+        twiddles      = Variable('twiddles', 'const scalar_type', array=True, restrict=True),
+        dim           = Variable('dim', 'const size_t'),
+        lengths       = Variable('lengths', 'const size_t', array=True, restrict=True),
+        stride        = Variable('stride', 'const size_t', array=True, restrict=True),
+        nbatch        = Variable('nbatch', 'const size_t'),
         # locals
-        lds        = Variable('lds', 'scalar_type',
-                              size=length * params.transforms_per_block,
-                              array=True, restrict=True, shared=True),
-        block_id   = Variable('blockIdx.x'),
-        thread_id  = Variable('threadIdx.x'),
-        thread     = Variable('thread', 'size_t'),
-        offset     = Variable('offset', 'size_t', value=0),
-        offset_lds = Variable('offset_lds', 'unsigned int'),
-        batch      = Variable('batch', 'size_t'),
-        transform  = Variable('transform', 'size_t'),
-        stride0    = Variable('stride0', 'const size_t'),
+        lds_uchar     = Variable('lds_uchar', 'unsigned char',
+                              size='dynamic',  post_qualifier='__align__(sizeof(scalar_type))',
+                              array=True, shared=True),
+        lds           = Variable('lds', 'scalar_type', array=True, restrict=True, pointer=True,
+                               value = 'reinterpret_cast<scalar_type *>(lds_uchar)'), # FIXME: do it in AST properly
+        block_id      = Variable('blockIdx.x'),
+        thread_id     = Variable('threadIdx.x'),
+        thread        = Variable('thread', 'size_t'),
+        offset        = Variable('offset', 'size_t', value=0),
+        offset_lds    = Variable('offset_lds', 'unsigned int'),
+        batch         = Variable('batch', 'size_t'),
+        transform     = Variable('transform', 'size_t'),
+        stride0       = Variable('stride0', 'const size_t'),
         # device
         W      = Variable('W', 'scalar_type'),
         t      = Variable('t', 'scalar_type'),
@@ -522,7 +524,7 @@ class StockhamKernel:
             f'  uses {params.threads_per_transform} threads per transform',
             f'  does {params.transforms_per_block} transforms per thread block',
             f'therefore it should be called with {params.threads_per_block} threads per thread block')
-        body += Declarations(kvars.lds, kvars.offset, kvars.offset_lds, kvars.batch, kvars.transform, kvars.thread)
+        body += Declarations(kvars.lds_uchar, kvars.lds, kvars.offset, kvars.offset_lds, kvars.batch, kvars.transform, kvars.thread)
         body += Declaration(kvars.stride0.name, kvars.stride0.type,
                             value=Ternary(kvars.stride_type == 'SB_UNIT', 1, kvars.stride[0]))
         body += CallbackDeclaration()
