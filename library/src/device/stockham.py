@@ -89,6 +89,8 @@ def common_variables(length, params, nregisters):
         scalar_type   = Variable('scalar_type', 'typename'),
         callback_type = Variable('cbtype', 'CallbackType'),
         stride_type   = Variable('sb', 'StrideBin'),
+        embedded_type = Variable('ebtype', 'EmbeddedType'),
+
         # arguments
         buf         = Variable('buf', 'scalar_type', array=True, restrict=True),
         twiddles    = Variable('twiddles', 'const scalar_type', array=True, restrict=True),
@@ -480,7 +482,7 @@ class StockhamKernel:
         self.kwargs = kwargs
 
     def templates(self, kvars, **kwvars):
-        templates = TemplateList(kvars.scalar_type, kvars.stride_type, kvars.callback_type)
+        templates = TemplateList(kvars.scalar_type, kvars.stride_type, kvars.embedded_type, kvars.callback_type)
         templates = self.large_twiddles.add_templates(templates, **kwvars)
         templates = self.tiling.add_templates(templates, **kwvars)
         return templates
