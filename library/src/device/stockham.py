@@ -251,7 +251,7 @@ class StockhamTiling(AdditionalArgumentMixin):
         """Return code to store LDS to global buffer."""
         return StatementList()
 
-    def real2cmplx_pre(self, half_N, kvars, **kwargs):
+    def real2cmplx_pre(self, half_N, thread_id=None, lds=None, twiddles=None, lds_padding=None, embedded_type=None, scalar_type=None, **kwargs):
         """Return code to handle even-length real to complex pre-process in lds."""
         
         Ndiv4  = 'true' if half_N % 2 == 0 else 'false'
@@ -260,14 +260,14 @@ class StockhamTiling(AdditionalArgumentMixin):
         stmts += SyncThreads()
         stmts += LineBreak()
         stmts += Call(f'real_pre_process_kernel_inplace',
-                    templates = TemplateList(kwargs.get('scalar_type'), Ndiv4),
-                    arguments= ArgumentList(kvars.thread_id% quarter_N,
-                        half_N - kvars.thread_id % quarter_N, half_N, quarter_N,
-                        kvars.lds[kvars.thread_id / quarter_N * B(half_N + kvars.lds_padding)].address(),
-                        0, kvars.twiddles[half_N].address()),)
+                    templates = TemplateList(scalar_type, Ndiv4),
+                    arguments= ArgumentList(thread_id% quarter_N,
+                        half_N - thread_id % quarter_N, half_N, quarter_N,
+                        lds[thread_id / quarter_N * B(half_N + lds_padding)].address(),
+                        0, twiddles[half_N].address()),)
         stmts += SyncThreads()
 
-        return If(Equal(kwargs.get('embedded_type'),'EmbeddedType::C2Real_PRE'), stmts)
+        return If(Equal(embedded_type,'EmbeddedType::C2Real_PRE'), stmts)
 
 
 class StockhamTilingRR(StockhamTiling):
@@ -568,7 +568,7 @@ class StockhamKernel:
 
         body += LineBreak()
         body += CommentLines('handle even-length real to complex pre-process in lds before transform')
-        body += self.tiling.real2cmplx_pre(self.length, kvars, **kwvars)
+        body += self.tiling.real2cmplx_pre(self.length, **kwvars)
 
         body += LineBreak()
         body += CommentLines('transform')
