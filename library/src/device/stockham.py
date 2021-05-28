@@ -305,23 +305,32 @@ class StockhamTiling(AdditionalArgumentMixin):
         """Return code to store LDS to global buffer."""
         return StatementList()
 
-    def real2cmplx_pre(self, half_N, thread_id=None, lds=None, twiddles=None, lds_padding=None, embedded_type=None, scalar_type=None, **kwargs):
+    def real2cmplx_pre_post(self, half_N, isPre, param, thread_id=None, lds=None, twiddles=None, lds_padding=None, embedded_type=None, scalar_type=None, **kwargs):
         """Return code to handle even-length real to complex pre-process in lds."""
         
+        function_name = f'real_pre_process_kernel_inplace' if isPre else f'real_post_process_kernel_inplace'
+        template_type = 'EmbeddedType::C2Real_PRE' if isPre else 'EmbeddedType::Real2C_POST'
         Ndiv4  = 'true' if half_N % 2 == 0 else 'false'
-        quarter_N = half_N // 2
+        quarter_N = half_N // 20
+
         stmts = StatementList()
-        stmts += SyncThreads()
+        stmts += SyncThreads() # Todo: We might not have to sync here which depends on the access pattern
         stmts += LineBreak()
-        stmts += Call(f'real_pre_process_kernel_inplace',
-                    templates = TemplateList(scalar_type, Ndiv4),
-                    arguments= ArgumentList(thread_id% quarter_N,
-                        half_N - thread_id % quarter_N, half_N, quarter_N,
-                        lds[thread_id / quarter_N * B(half_N + lds_padding)].address(),
-                        0, twiddles[half_N].address()),)
+
+        if (param.threads_per_transform < quarter_N):
+            stmts += Call(f'printf',arguments= ArgumentList("threads_per_transform is too small for even-length c2r/r2r!"),)
+        else :
+            stmts += Call(function_name,
+                        templates = TemplateList(scalar_type, Ndiv4),
+                        arguments= ArgumentList(thread_id% quarter_N,
+                            half_N - thread_id % quarter_N, half_N, quarter_N,
+                            lds[thread_id / quarter_N * B(half_N + lds_padding)].address(),
+                            0, twiddles[half_N].address()),)
+        # Todo: For case threads_per_transform == quarter_N, we could remove one more "if" in the kernels
+
         stmts += SyncThreads()
 
-        return If(Equal(embedded_type,'EmbeddedType::C2Real_PRE'), stmts)
+        return If(Equal(embedded_type, template_type), stmts)
 
 
 class StockhamTilingRR(StockhamTiling):
@@ -636,7 +645,7 @@ class StockhamKernel:
 
         body += LineBreak()
         body += CommentLines('handle even-length real to complex pre-process in lds before transform')
-        body += self.tiling.real2cmplx_pre(self.length, **kwvars)
+        body += self.tiling.real2cmplx_pre_post(self.length, True, params, **kwvars)
 
         body += LineBreak()
         body += CommentLines('transform')
@@ -646,6 +655,10 @@ class StockhamKernel:
         body += Call(f'forward_length{self.length}_{self.tiling.name}_device',
                      arguments=self.device_call_arguments(kvars, **kwvars),
                      templates=templates)
+
+        body += LineBreak()
+        body += CommentLines('handle even-length complex to real post-process in lds after transform')
+        body += self.tiling.real2cmplx_pre_post(self.length, False, params, **kwvars)
 
         body += LineBreak()
         body += CommentLines('store global')
