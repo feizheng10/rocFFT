@@ -3145,6 +3145,7 @@ void TreeNode::assign_buffers_CS_3D_BLOCK_CC(TraverseState&   state,
     childNodes[2]->inArrayType  = inArrayType;
     childNodes[2]->obOut        = obOut;
     childNodes[2]->outArrayType = outArrayType;
+    childNodes[2]->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
 }
 
 void TreeNode::assign_buffers_CS_3D_BLOCK_RC(TraverseState&   state,
