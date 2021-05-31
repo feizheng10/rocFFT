@@ -1019,7 +1019,7 @@ static size_t TransformsPerThreadblock(const size_t len, rocfft_precision precis
         DetermineSizes(len, wgs, numTrans);
         return numTrans;
     }
-    catch(std::exception&)
+    catch(std::out_of_range&)
     {
         return 0;
     }
@@ -1033,8 +1033,8 @@ static bool have_SBCC_kernel(size_t length, rocfft_precision precision)
 
 bool TreeNode::use_CS_3D_BLOCK_CC()
 {
-    // first two are SBCC-able, see if we can run them
-    for(unsigned int i = 0; i < 2; ++i)
+    // last two dimensions (Y+Z) are SBCC-able, see if we can run them
+    for(unsigned int i = 1; i < 3; ++i)
     {
         // power of 2 sizes should aim for SBRC plans instead, which
         // can do diagonal transpose to avoid bank/channel conflicts
@@ -2211,6 +2211,7 @@ void TreeNode::build_CS_3D_BLOCK_CC()
     auto sbrr    = TreeNode::CreateNode(this);
     sbrr->length = length;
     sbrr->scheme = CS_KERNEL_STOCKHAM;
+    sbrr->RecursiveBuildTree();
     childNodes.emplace_back(std::move(sbrr));
 }
 
