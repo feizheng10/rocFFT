@@ -305,7 +305,9 @@ class StockhamTiling(AdditionalArgumentMixin):
         """Return code to store LDS to global buffer."""
         return StatementList()
 
-    def real2cmplx_pre_post(self, half_N, isPre, param, thread_id=None, lds=None, twiddles=None, lds_padding=None, embedded_type=None, scalar_type=None, **kwargs):
+    def real2cmplx_pre_post(self, half_N, isPre, param, thread_id=None, lds=None,
+            twiddles=None, lds_padding=None, embedded_type=None, scalar_type=None,
+            buf=None, offset=None, stride=None, **kwargs):
         """Return code to handle even-length real to complex pre-process in lds."""
         
         function_name = f'real_pre_process_kernel_inplace' if isPre else f'real_post_process_kernel_inplace'
@@ -314,6 +316,12 @@ class StockhamTiling(AdditionalArgumentMixin):
         quarter_N = half_N // 2
 
         stmts = StatementList()
+
+        if (isPre):
+            stmts += If(Less(thread_id, param.transforms_per_block),
+                Assign(lds[thread_id * half_N], LoadGlobal(buf, offset + B(thread_id + 1) * stride[1])))
+            stmts += LineBreak()
+
         stmts += SyncThreads() # Todo: We might not have to sync here which depends on the access pattern
         stmts += LineBreak()
 
@@ -331,7 +339,15 @@ class StockhamTiling(AdditionalArgumentMixin):
                             half_N - thread_id % quarter_N, half_N, quarter_N,
                             lds[thread_id / quarter_N * B(half_N + lds_padding) + i * B(half_N + lds_padding)].address(),
                             0, twiddles[half_N].address()),)
-        stmts += SyncThreads()
+        if (isPre):
+            stmts += SyncThreads()
+            stmts += LineBreak()
+
+        # FIXME: for post-processing after // store global __syncthreads();
+        # if (not isPre):
+        #     stmts += If(Less(thread_id, param.transforms_per_block),
+        #         StoreGlobal(buf, offset + B(thread_id + 1) * stride[1], lds[thread_id * half_N]))
+        #     stmts += LineBreak()
 
         return If(Equal(embedded_type, template_type), stmts)
 
@@ -344,7 +360,7 @@ class StockhamTilingRR(StockhamTiling):
     def calculate_offsets(self, length, params,
                           lengths=None, stride=None,
                           dim=None, transform=None, block_id=None, thread_id=None,
-                          batch=None, offset=None, offset_lds=None, **kwargs):
+                          batch=None, offset=None, offset_lds=None, lds_padding=None, **kwargs):
 
         d             = Variable('d', 'int')
         index_along_d = Variable('index_along_d', 'size_t')
@@ -363,7 +379,7 @@ class StockhamTilingRR(StockhamTiling):
                          Assign(offset, offset + index_along_d * stride[d])))
         stmts += Assign(batch, transform / plength)
         stmts += Assign(offset, offset + batch * stride[dim])
-        stmts += Assign(offset_lds, length * B(transform % params.transforms_per_block))
+        stmts += Assign(offset_lds, B(length + lds_padding) * B(transform % params.transforms_per_block))
 
         return stmts
 
