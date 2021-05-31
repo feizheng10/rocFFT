@@ -98,6 +98,7 @@ std::string PrintScheme(ComputeScheme cs)
            {ENUMSTR(CS_3D_STRAIGHT)},
            {ENUMSTR(CS_3D_TRTRTR)},
            {ENUMSTR(CS_3D_RTRT)},
+           {ENUMSTR(CS_3D_BLOCK_CC)},
            {ENUMSTR(CS_3D_BLOCK_RC)},
            {ENUMSTR(CS_3D_RC)},
            {ENUMSTR(CS_KERNEL_3D_STOCKHAM_BLOCK_CC)},
@@ -881,8 +882,11 @@ void TreeNode::RecursiveBuildTree()
         }
         else
         {
-            // if we can get down to 3 or 4 kernels via SBRC, prefer that
-            if(use_CS_3D_BLOCK_RC())
+            // best is 3-kernels in-place SBCC
+            if(use_CS_3D_BLOCK_CC())
+                scheme = CS_3D_BLOCK_CC;
+            // next best is 3 or 4 kernels SBRC
+            else if(use_CS_3D_BLOCK_RC())
                 scheme = CS_3D_BLOCK_RC;
             else
                 scheme = CS_3D_RTRT;
@@ -916,6 +920,11 @@ void TreeNode::RecursiveBuildTree()
         case CS_3D_TRTRTR:
         {
             build_CS_3D_TRTRTR();
+        }
+        break;
+        case CS_3D_BLOCK_CC:
+        {
+            build_CS_3D_BLOCK_CC();
         }
         break;
         case CS_3D_BLOCK_RC:
@@ -995,6 +1004,58 @@ bool TreeNode::use_CS_2D_RC()
     }
 
     return false;
+}
+
+static size_t TransformsPerThreadblock(const size_t len, rocfft_precision precision)
+{
+    // look in function pool first to see if it knows
+    try
+    {
+        auto k = function_pool::get_kernel(fpkey(len, precision));
+        if(k.batches_per_block)
+            return k.batches_per_block;
+        // otherwise fall back to old generator
+        size_t wgs = 0, numTrans = 0;
+        DetermineSizes(len, wgs, numTrans);
+        return numTrans;
+    }
+    catch(std::exception&)
+    {
+        return 0;
+    }
+}
+
+// do we have an SBCC kernel for this specific size?
+static bool have_SBCC_kernel(size_t length, rocfft_precision precision)
+{
+    return function_pool::has_function(fpkey(length, precision, CS_KERNEL_STOCKHAM_BLOCK_CC));
+}
+
+bool TreeNode::use_CS_3D_BLOCK_CC()
+{
+    // first two are SBCC-able, see if we can run them
+    for(unsigned int i = 0; i < 2; ++i)
+    {
+        // power of 2 sizes should aim for SBRC plans instead, which
+        // can do diagonal transpose to avoid bank/channel conflicts
+        if(IsPo2(length[i]))
+            return false;
+
+        // we can use an explicit SBCC kernel
+        if(have_SBCC_kernel(length[i], precision))
+            continue;
+
+        // otherwise, try a normal Stockham kernel with modified strides
+        size_t numTrans = TransformsPerThreadblock(length[i], precision);
+
+        // ensure we are doing enough rows to coalesce properly. 4
+        // seems to be enough for double-precision, whereas some
+        // sizes that do 7 rows seem to be slower for single.
+        size_t minRows = precision == rocfft_precision_single ? 8 : 4;
+        if(numTrans < minRows)
+            return false;
+    }
+    return true;
 }
 
 size_t TreeNode::count_3D_SBRC_nodes()
@@ -2128,6 +2189,31 @@ void TreeNode::build_CS_3D_TRTRTR()
     }
 }
 
+void TreeNode::build_CS_3D_BLOCK_CC()
+{
+    scheme = CS_3D_BLOCK_CC;
+
+    auto sbcc0    = TreeNode::CreateNode(this);
+    sbcc0->length = length;
+    std::swap(sbcc0->length[0], sbcc0->length[1]);
+    sbcc0->scheme = have_SBCC_kernel(sbcc0->length[0], precision) ? CS_KERNEL_STOCKHAM_BLOCK_CC
+                                                                  : CS_KERNEL_STOCKHAM;
+    childNodes.emplace_back(std::move(sbcc0));
+
+    auto sbcc1    = TreeNode::CreateNode(this);
+    sbcc1->length = length;
+    std::swap(sbcc1->length[1], sbcc1->length[2]);
+    std::swap(sbcc1->length[0], sbcc1->length[1]);
+    sbcc1->scheme = have_SBCC_kernel(sbcc1->length[0], precision) ? CS_KERNEL_STOCKHAM_BLOCK_CC
+                                                                  : CS_KERNEL_STOCKHAM;
+    childNodes.emplace_back(std::move(sbcc1));
+
+    auto sbrr    = TreeNode::CreateNode(this);
+    sbrr->length = length;
+    sbrr->scheme = CS_KERNEL_STOCKHAM;
+    childNodes.emplace_back(std::move(sbrr));
+}
+
 void TreeNode::build_CS_3D_BLOCK_RC()
 {
     scheme                         = CS_3D_BLOCK_RC;
@@ -2383,6 +2469,9 @@ void TreeNode::TraverseTreeAssignBuffersLogicA(TraverseState&   state,
         break;
     case CS_3D_TRTRTR:
         assign_buffers_CS_3D_TRTRTR(state, flipIn, flipOut, obOutBuf);
+        break;
+    case CS_3D_BLOCK_CC:
+        assign_buffers_CS_3D_BLOCK_CC(state, flipIn, flipOut, obOutBuf);
         break;
     case CS_3D_BLOCK_RC:
         assign_buffers_CS_3D_BLOCK_RC(state, flipIn, flipOut, obOutBuf);
@@ -3032,6 +3121,31 @@ void TreeNode::assign_buffers_CS_3D_TRTRTR(TraverseState&   state,
     obOut = childNodes[childNodes.size() - 1]->obOut;
 }
 
+void TreeNode::assign_buffers_CS_3D_BLOCK_CC(TraverseState&   state,
+                                             OperatingBuffer& flipIn,
+                                             OperatingBuffer& flipOut,
+                                             OperatingBuffer& obOutBuf)
+{
+    assert(scheme == CS_3D_BLOCK_CC);
+
+    // first two are in-place
+    childNodes[0]->obIn         = obIn;
+    childNodes[0]->inArrayType  = inArrayType;
+    childNodes[0]->obOut        = obIn;
+    childNodes[0]->outArrayType = inArrayType;
+
+    childNodes[1]->obIn         = obIn;
+    childNodes[1]->inArrayType  = inArrayType;
+    childNodes[1]->obOut        = obIn;
+    childNodes[1]->outArrayType = inArrayType;
+
+    obOut                       = obOutBuf;
+    childNodes[2]->obIn         = obIn;
+    childNodes[2]->inArrayType  = inArrayType;
+    childNodes[2]->obOut        = obOut;
+    childNodes[2]->outArrayType = outArrayType;
+}
+
 void TreeNode::assign_buffers_CS_3D_BLOCK_RC(TraverseState&   state,
                                              OperatingBuffer& flipIn,
                                              OperatingBuffer& flipOut,
@@ -3234,6 +3348,9 @@ void TreeNode::TraverseTreeAssignParamsLogicA()
         break;
     case CS_3D_TRTRTR:
         assign_params_CS_3D_TRTRTR();
+        break;
+    case CS_3D_BLOCK_CC:
+        assign_params_CS_3D_BLOCK_CC();
         break;
     case CS_3D_BLOCK_RC:
         assign_params_CS_3D_BLOCK_RC();
@@ -4284,6 +4401,39 @@ void TreeNode::assign_params_CS_3D_TRTRTR()
         }
         row_plan->TraverseTreeAssignParamsLogicA();
     }
+}
+
+void TreeNode::assign_params_CS_3D_BLOCK_CC()
+{
+    assert(scheme == CS_3D_BLOCK_CC);
+    assert(childNodes.size() == 3);
+
+    auto& child0     = childNodes[0];
+    child0->inStride = inStride;
+    // SBCC along Y dim
+    std::swap(child0->inStride[0], child0->inStride[1]);
+    child0->iDist     = iDist;
+    child0->outStride = child0->inStride;
+    child0->oDist     = iDist;
+    child0->TraverseTreeAssignParamsLogicA();
+
+    auto& child1     = childNodes[1];
+    child1->inStride = inStride;
+    // SBCC along Z dim
+    std::swap(child1->inStride[1], child1->inStride[2]);
+    std::swap(child1->inStride[0], child1->inStride[1]);
+    child1->iDist     = iDist;
+    child1->outStride = child1->inStride;
+    child1->oDist     = iDist;
+    child1->TraverseTreeAssignParamsLogicA();
+
+    // row FFT
+    auto& child2      = childNodes[2];
+    child2->inStride  = inStride;
+    child2->iDist     = iDist;
+    child2->outStride = outStride;
+    child2->oDist     = oDist;
+    child2->TraverseTreeAssignParamsLogicA();
 }
 
 void TreeNode::assign_params_CS_3D_BLOCK_RC()
