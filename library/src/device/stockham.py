@@ -311,23 +311,26 @@ class StockhamTiling(AdditionalArgumentMixin):
         function_name = f'real_pre_process_kernel_inplace' if isPre else f'real_post_process_kernel_inplace'
         template_type = 'EmbeddedType::C2Real_PRE' if isPre else 'EmbeddedType::Real2C_POST'
         Ndiv4  = 'true' if half_N % 2 == 0 else 'false'
-        quarter_N = half_N // 20
+        quarter_N = half_N // 2
 
         stmts = StatementList()
         stmts += SyncThreads() # Todo: We might not have to sync here which depends on the access pattern
         stmts += LineBreak()
 
-        if (param.threads_per_transform < quarter_N):
-            stmts += Call(f'printf',arguments= ArgumentList("threads_per_transform is too small for even-length c2r/r2r!"),)
-        else :
-            stmts += Call(function_name,
+        if (param.threads_per_block < quarter_N):
+            # NB: Technically, we still can handle it...but would rather pop up a warning.
+            #     Or throw exception?
+            stmts += Call(f'printf',arguments= ArgumentList('"threads_per_block is too small for even-length c2r/r2r!"'),)
+        else:
+            # Todo: For case threads_per_transform == quarter_N, we could save one more "if" in the c2r/r2r kernels
+            r2c_transforms_per_block = param.transforms_per_block // (param.threads_per_block // quarter_N)
+            for i in range(r2c_transforms_per_block):
+                 stmts += Call(function_name,
                         templates = TemplateList(scalar_type, Ndiv4),
-                        arguments= ArgumentList(thread_id% quarter_N,
+                        arguments= ArgumentList(thread_id  % quarter_N,
                             half_N - thread_id % quarter_N, half_N, quarter_N,
-                            lds[thread_id / quarter_N * B(half_N + lds_padding)].address(),
+                            lds[thread_id / quarter_N * B(half_N + lds_padding) + i * B(half_N + lds_padding)].address(),
                             0, twiddles[half_N].address()),)
-        # Todo: For case threads_per_transform == quarter_N, we could remove one more "if" in the kernels
-
         stmts += SyncThreads()
 
         return If(Equal(embedded_type, template_type), stmts)
