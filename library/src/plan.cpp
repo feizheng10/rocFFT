@@ -1026,6 +1026,13 @@ static bool SBCC_dim_available(const std::vector<size_t>& length,
     if(length[0] < numTrans)
         return false;
 
+    // ensure we are doing enough rows to coalesce properly. 4
+    // seems to be enough for double-precision, whereas some
+    // sizes that do 7 rows seem to be slower for single.
+    size_t minRows = precision == rocfft_precision_single ? 8 : 4;
+    if(numTrans < minRows)
+        return false;
+
     return true;
 }
 
