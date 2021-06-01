@@ -1006,17 +1006,17 @@ bool TreeNode::use_CS_2D_RC()
     return false;
 }
 
-static size_t TransformsPerThreadblock(const size_t len, rocfft_precision precision)
+static size_t TransformsPerThreadblock(FMKey key)
 {
     // look in function pool first to see if it knows
     try
     {
-        auto k = function_pool::get_kernel(fpkey(len, precision));
+        auto k = function_pool::get_kernel(key);
         if(k.batches_per_block)
             return k.batches_per_block;
         // otherwise fall back to old generator
         size_t wgs = 0, numTrans = 0;
-        DetermineSizes(len, wgs, numTrans);
+        DetermineSizes(std::get<0>(key)[0], wgs, numTrans);
         return numTrans;
     }
     catch(std::out_of_range&)
@@ -1033,33 +1033,39 @@ static bool have_SBCC_kernel(size_t length, rocfft_precision precision)
 
 bool TreeNode::use_CS_3D_BLOCK_CC()
 {
-    auto sbcc_dim_available = [](size_t length, rocfft_precision precision) {
+    auto sbcc_dim_available = [](size_t sbcc_len, size_t length0, rocfft_precision precision) {
         // power of 2 sizes should aim for SBRC plans instead, which
         // can do diagonal transpose to avoid bank/channel conflicts
-        if(IsPo2(length))
+        if(IsPo2(sbcc_len))
             return false;
 
-        // we can use an explicit SBCC kernel
-        if(have_SBCC_kernel(length, precision))
-            return true;
-
-        // otherwise, try a normal Stockham kernel with modified strides
-        size_t numTrans = TransformsPerThreadblock(length, precision);
+        // try an explicit SBCC kernel
+        size_t numTrans
+            = TransformsPerThreadblock(fpkey(sbcc_len, precision, CS_KERNEL_STOCKHAM_BLOCK_CC));
+        if(!numTrans)
+        {
+            // otherwise, try a normal Stockham kernel with modified strides
+            numTrans = TransformsPerThreadblock(fpkey(sbcc_len, precision));
+        }
 
         // ensure we are doing enough rows to coalesce properly. 4
         // seems to be enough for double-precision, whereas some
         // sizes that do 7 rows seem to be slower for single.
         size_t minRows = precision == rocfft_precision_single ? 8 : 4;
-        return numTrans >= minRows;
+        if(numTrans < minRows)
+            return false;
+
+        // x-dim should be >= the blockwidth, or it might perform worse
+        return length0 >= numTrans;
     };
 
     // Z dim must be SBCC-able
-    if(!sbcc_dim_available(length[2], precision))
+    if(!sbcc_dim_available(length[2], length[0], precision))
         return false;
 
     // either we must have 2D_SINGLE for X+Y dims or Y dim must be SBCC-able
     return function_pool::has_function(fpkey(length[0], length[1], precision))
-           || sbcc_dim_available(length[1], precision);
+           || sbcc_dim_available(length[1], length[0], precision);
 }
 
 size_t TreeNode::count_3D_SBRC_nodes()
