@@ -1022,13 +1022,6 @@ static bool SBCC_dim_available(const std::vector<size_t>& length,
         }
     }
 
-    // hack for this special case
-    // this size is rejected by the following conservative threshold (#-elems)
-    // however it can use 3D_RC and get much better performance
-    std::vector<size_t> special_case{56, 336, 336};
-    if(length == special_case && precision == rocfft_precision_double)
-        return true;
-
     // x-dim should be >= the blockwidth, or it might perform worse..
     if(length[0] < numTrans)
         return false;
@@ -1107,6 +1100,13 @@ bool TreeNode::use_CS_3D_RC()
     // check SBCC availability along Z dimension
     if(!SBCC_dim_available(length, 2, precision))
         return false;
+
+    // hack for this special case
+    // this size is rejected by the following conservative threshold (#-elems)
+    // however it can use 3D_RC and get much better performance
+    std::vector<size_t> special_case{56, 336, 336};
+    if(length == special_case && precision == rocfft_precision_double)
+        return true;
 
     // we don't want a too-large 3D block, sbcc along z-dim might be bad
     if(length[0] * length[1] * length[2] >= (128 * 128 * 128))
