@@ -369,6 +369,8 @@ bool PlanPowX(ExecPlan& execPlan)
                 gp.b_x = (execPlan.execSeq[i]->batch + kernel.batches_per_block - 1)
                          / kernel.batches_per_block;
                 gp.tpb_x = kernel.threads_per_block;
+                lds      = execPlan.execSeq[i]->length[0] * execPlan.execSeq[i]->length[1]
+                      * kernel.batches_per_block;
             }
             else
             {
