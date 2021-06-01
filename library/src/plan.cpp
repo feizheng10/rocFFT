@@ -3050,7 +3050,7 @@ void TreeNode::assign_buffers_CS_RC(TraverseState&   state,
                                     OperatingBuffer& obOutBuf)
 {
     childNodes[0]->SetInputBuffer(state);
-    childNodes[0]->obOut = childNodes[0]->obIn;
+    childNodes[0]->obOut = flipOut;
     childNodes[0]->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
 
     childNodes[1]->SetInputBuffer(state);
