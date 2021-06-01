@@ -1021,6 +1021,13 @@ static bool SBCC_dim_available(const std::vector<size_t>& length,
             return false;
         }
     }
+    // if we have a size for this transform but numTrans, this must
+    // be an old-generator kernel
+    if(!numTrans)
+    {
+        size_t wgs = 0;
+        DetermineSizes(length[sbcc_dim], wgs, numTrans);
+    }
 
     // x-dim should be >= the blockwidth, or it might perform worse..
     if(length[0] < numTrans)
