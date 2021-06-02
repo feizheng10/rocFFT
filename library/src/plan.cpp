@@ -1096,19 +1096,16 @@ bool TreeNode::use_CS_3D_RC()
 
     // Peek the first child
     // Give up if 1st child is 2D_RTRT (means the poor RTRT_C),
-    if(length.size() == 3)
-    {
-        auto child0       = TreeNode::CreateNode(this);
-        child0->length    = length;
-        child0->dimension = 2;
-        child0->RecursiveBuildTree();
-        if(child0->scheme == CS_2D_RTRT)
-            return false;
+    auto child0       = TreeNode::CreateNode(this);
+    child0->length    = length;
+    child0->dimension = 2;
+    child0->RecursiveBuildTree();
+    if(child0->scheme == CS_2D_RTRT)
+        return false;
 
-        // if we are here, the 2D sheme is either
-        // 2D_SINGLE+CC (2 kernels) or 2D_RC+CC (3 kernels),
-        assert(child0->scheme == CS_KERNEL_2D_SINGLE || child0->scheme == CS_2D_RC);
-    }
+    // if we are here, the 2D sheme is either
+    // 2D_SINGLE+CC (2 kernels) or 2D_RC+CC (3 kernels),
+    assert(child0->scheme == CS_KERNEL_2D_SINGLE || child0->scheme == CS_2D_RC);
     return true;
 }
 
