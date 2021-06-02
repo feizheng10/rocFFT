@@ -317,11 +317,6 @@ class StockhamTiling(AdditionalArgumentMixin):
 
         stmts = StatementList()
 
-        if (isPre):
-            stmts += If(Less(thread_id, param.transforms_per_block),
-                Assign(lds[thread_id * half_N], LoadGlobal(buf, offset + B(thread_id + 1) * stride[1])))
-            stmts += LineBreak()
-
         stmts += SyncThreads() # Todo: We might not have to sync here which depends on the access pattern
         stmts += LineBreak()
 
@@ -342,12 +337,6 @@ class StockhamTiling(AdditionalArgumentMixin):
         if (isPre):
             stmts += SyncThreads()
             stmts += LineBreak()
-
-        # FIXME: for post-processing after // store global __syncthreads();
-        # if (not isPre):
-        #     stmts += If(Less(thread_id, param.transforms_per_block),
-        #         StoreGlobal(buf, offset + B(thread_id + 1) * stride[1], lds[thread_id * half_N]))
-        #     stmts += LineBreak()
 
         return If(Equal(embedded_type, template_type), stmts)
 
@@ -386,7 +375,7 @@ class StockhamTilingRR(StockhamTiling):
     def load_from_global(self, length, params,
                          thread=None, thread_id=None, stride0=None,
                          buf=None, offset=None, lds=None, offset_lds=None,
-                         **kwargs):
+                         embedded_type=None, **kwargs):
         width  = params.threads_per_transform
         height = length // width
         stmts = StatementList()
@@ -394,20 +383,39 @@ class StockhamTilingRR(StockhamTiling):
         for w in range(height):
             idx = thread + w * width
             stmts += Assign(lds[offset_lds + idx], LoadGlobal(buf, offset + B(idx) * stride0))
+
+        stmts += LineBreak()
+        stmts += CommentLines('append extra global loading for C2Real pre-process only')
+        stmts_c2real_pre = StatementList()
+        stmts_c2real_pre += CommentLines('use the last thread of each transform to load one more element per row')
+        stmts_c2real_pre += If(Equal(thread, params.threads_per_transform - 1),
+            Assign(lds[offset_lds + thread + (height - 1) * width + 1],
+            LoadGlobal(buf, offset + B(thread + (height - 1) * width + 1) * stride0)))
+        stmts += If(Equal(embedded_type, 'EmbeddedType::C2Real_PRE'), stmts_c2real_pre)
+
         return stmts
 
     def store_to_global(self, length, params,
                         thread=None, thread_id=None, stride0=None,
                         buf=None, offset=None, lds=None, offset_lds=None,
-                        **kwargs):
+                        embedded_type=None, **kwargs):
         width  = params.threads_per_transform
         height = length // width
         stmts = StatementList()
-        stmts += Assign(thread, thread_id % width)
         for w in range(height):
             idx = thread + w * width
             stmts += StoreGlobal(buf, offset + B(idx) * stride0, lds[offset_lds + idx])
-        return If(thread < width, stmts)
+
+        stmts += LineBreak()
+        stmts += CommentLines('append extra global write for Real2C post-process only')
+        stmts_real2c_post = StatementList()
+        stmts_real2c_post += CommentLines('use the last thread of each transform to write one more element per row')
+        stmts_real2c_post += If(Equal(thread, params.threads_per_transform - 1),
+            StoreGlobal(buf, offset + B(thread + (height - 1) * width + 1) * stride0,
+            lds[offset_lds + thread + (height - 1) * width + 1]))
+        stmts += If(Equal(embedded_type, 'EmbeddedType::Real2C_POST'), stmts_real2c_post)
+
+        return stmts
 
 
 class StockhamTilingCC(StockhamTiling):
