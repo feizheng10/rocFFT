@@ -1003,11 +1003,14 @@ static bool SBCC_dim_available(const std::vector<size_t>& length,
     // Check the C part.
     // The first R is built recursively with 2D_FFT, leave the check part to themselves
     size_t numTrans = 0;
+    // do we have a purpose-built sbcc kernel
+    bool have_sbcc = false;
     try
     {
         numTrans = function_pool::get_kernel(
                        fpkey(length[sbcc_dim], precision, CS_KERNEL_STOCKHAM_BLOCK_CC))
                        .batches_per_block;
+        have_sbcc = true;
     }
     catch(std::out_of_range&)
     {
@@ -1033,12 +1036,16 @@ static bool SBCC_dim_available(const std::vector<size_t>& length,
     if(length[0] < numTrans)
         return false;
 
-    // ensure we are doing enough rows to coalesce properly. 4
-    // seems to be enough for double-precision, whereas some
-    // sizes that do 7 rows seem to be slower for single.
-    size_t minRows = precision == rocfft_precision_single ? 8 : 4;
-    if(numTrans < minRows)
-        return false;
+    // for regular stockham kernels, ensure we are doing enough rows
+    // to coalesce properly. 4 seems to be enough for
+    // double-precision, whereas some sizes that do 7 rows seem to be
+    // slower for single.
+    if(!have_sbcc)
+    {
+        size_t minRows = precision == rocfft_precision_single ? 8 : 4;
+        if(numTrans < minRows)
+            return false;
+    }
 
     return true;
 }
