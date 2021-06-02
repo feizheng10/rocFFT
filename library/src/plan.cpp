@@ -4393,8 +4393,6 @@ void TreeNode::assign_params_CS_3D_RC_STRAIGHT()
     auto& zPlan  = childNodes[1];
 
     // B -> B
-    // assert((xyPlan->obOut == OB_USER_OUT) || (xyPlan->obOut == OB_TEMP_CMPLX_FOR_REAL)
-    //        || (xyPlan->obOut == OB_TEMP_BLUESTEIN));
     xyPlan->inStride = inStride;
     xyPlan->iDist    = iDist;
 
@@ -4404,8 +4402,6 @@ void TreeNode::assign_params_CS_3D_RC_STRAIGHT()
     xyPlan->TraverseTreeAssignParamsLogicA();
 
     // B -> B
-    // assert((zPlan->obOut == OB_USER_OUT) || (zPlan->obOut == OB_TEMP_CMPLX_FOR_REAL)
-    //        || (zPlan->obOut == OB_TEMP_BLUESTEIN));
     zPlan->inStride.push_back(inStride[2]);
     zPlan->inStride.push_back(inStride[0]);
     zPlan->inStride.push_back(inStride[1]);
