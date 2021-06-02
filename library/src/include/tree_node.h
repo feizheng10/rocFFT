@@ -93,7 +93,6 @@ enum ComputeScheme
     CS_3D_STRAIGHT,
     CS_3D_TRTRTR,
     CS_3D_RTRT,
-    CS_3D_BLOCK_CC,
     CS_3D_BLOCK_RC,
     CS_3D_RC,
     CS_KERNEL_3D_STOCKHAM_BLOCK_CC,
@@ -214,7 +213,6 @@ public:
 
     bool use_CS_2D_SINGLE(); // To determine using scheme CS_KERNEL_2D_SINGLE or not
     bool use_CS_2D_RC(); // To determine using scheme CS_2D_RC or not
-    bool use_CS_3D_BLOCK_CC();
     bool use_CS_3D_BLOCK_RC();
     // how many SBRC kernels can we put into a 3D transform?
     size_t count_3D_SBRC_nodes();
@@ -247,11 +245,6 @@ public:
     void build_CS_3D_RTRT();
     // 3D 6 node builder, T: transpose Z_XY, R: row FFTs, T: transpose Z_XY, R: row FFTs, T: transpose Z_XY, R: row FFTs
     void build_CS_3D_TRTRTR();
-    // 3-node in-place SBCC builder:
-    // - SBCC along Y dimension
-    // - SBCC along Z dimension
-    // - row FFT along X dimension
-    void build_CS_3D_BLOCK_CC();
     // 3D 3-5 node builder.  Uses 3D SBRC kernels fused with
     // transpose for each dimension when possible to do row FFTs +
     // transpose, falls back to separate kernels for row FFTs +
@@ -331,10 +324,6 @@ public:
                                      OperatingBuffer& flipIn,
                                      OperatingBuffer& flipOut,
                                      OperatingBuffer& obOutBuf);
-    void assign_buffers_CS_3D_BLOCK_CC(TraverseState&   state,
-                                       OperatingBuffer& flipIn,
-                                       OperatingBuffer& flipOut,
-                                       OperatingBuffer& obOutBuf);
     void assign_buffers_CS_3D_BLOCK_RC(TraverseState&   state,
                                        OperatingBuffer& flipIn,
                                        OperatingBuffer& flipOut,
@@ -356,7 +345,6 @@ public:
     void assign_params_CS_2D_RTRT();
     void assign_params_CS_2D_RC_STRAIGHT();
     void assign_params_CS_3D_RTRT();
-    void assign_params_CS_3D_BLOCK_CC();
     void assign_params_CS_3D_BLOCK_RC();
     void assign_params_CS_3D_TRTRTR();
     void assign_params_CS_3D_RC_STRAIGHT();
