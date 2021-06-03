@@ -116,32 +116,52 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
         const size_t* __restrict__, const size_t* __restrict__, const size_t, const unsigned int, \
         void* __restrict__, void* __restrict__, uint32_t, void* __restrict__, void* __restrict__
 
-#define GET_KERNEL_FUNC_CBTYPE(FWD, BACK, PRECISION, EBTYPE, CBTYPE)   \
-    if(data->node->inStride[0] == 1 && data->node->outStride[0] == 1)  \
-    {                                                                  \
-        if(data->node->direction == -1)                                \
-            kernel_func = FWD<PRECISION, SB_UNIT, EBTYPE, CBTYPE>;     \
-        else                                                           \
-            kernel_func = BACK<PRECISION, SB_UNIT, EBTYPE, CBTYPE>;    \
-    }                                                                  \
-    else                                                               \
-    {                                                                  \
-        if(data->node->direction == -1)                                \
-            kernel_func = FWD<PRECISION, SB_NONUNIT, EBTYPE, CBTYPE>;  \
-        else                                                           \
-            kernel_func = BACK<PRECISION, SB_NONUNIT, EBTYPE, CBTYPE>; \
+#define GET_KERNEL_FUNC_CBTYPE(FWD, BACK, PRECISION, CBTYPE)                                 \
+    if(data->node->inStride[0] == 1 && data->node->outStride[0] == 1)                        \
+    {                                                                                        \
+        if(data->node->direction == -1)                                                      \
+        {                                                                                    \
+            if(data->node->ebtype == EmbeddedType::Real2C_POST)                              \
+                kernel_func = FWD<PRECISION, SB_UNIT, EmbeddedType::Real2C_POST, CBTYPE>;    \
+            else                                                                             \
+                kernel_func = FWD<PRECISION, SB_UNIT, EmbeddedType::NONE, CBTYPE>;           \
+        }                                                                                    \
+        else                                                                                 \
+        {                                                                                    \
+            if(data->node->ebtype == EmbeddedType::C2Real_PRE)                               \
+                kernel_func = BACK<PRECISION, SB_UNIT, EmbeddedType::C2Real_PRE, CBTYPE>;    \
+            else                                                                             \
+                kernel_func = BACK<PRECISION, SB_UNIT, EmbeddedType::NONE, CBTYPE>;          \
+        }                                                                                    \
+    }                                                                                        \
+    else                                                                                     \
+    {                                                                                        \
+        if(data->node->direction == -1)                                                      \
+        {                                                                                    \
+            if(data->node->ebtype == EmbeddedType::Real2C_POST)                              \
+                kernel_func = FWD<PRECISION, SB_NONUNIT, EmbeddedType::Real2C_POST, CBTYPE>; \
+            else                                                                             \
+                kernel_func = FWD<PRECISION, SB_NONUNIT, EmbeddedType::NONE, CBTYPE>;        \
+        }                                                                                    \
+        else                                                                                 \
+        {                                                                                    \
+            if(data->node->ebtype == EmbeddedType::C2Real_PRE)                               \
+                kernel_func = BACK<PRECISION, SB_NONUNIT, EmbeddedType::C2Real_PRE, CBTYPE>; \
+            else                                                                             \
+                kernel_func = BACK<PRECISION, SB_NONUNIT, EmbeddedType::NONE, CBTYPE>;       \
+        }                                                                                    \
     }
 
-#define GET_KERNEL_FUNC(FWD, BACK, PRECISION, EBTYPE, BASE_ARGS, ...) \
+#define GET_KERNEL_FUNC(FWD, BACK, PRECISION, BASE_ARGS, ...)         \
     void (*kernel_func)(BASE_ARGS(PRECISION), __VA_ARGS__) = nullptr; \
-    GET_KERNEL_FUNC_CBTYPE(FWD, BACK, PRECISION, EBTYPE, CallbackType::NONE)
+    GET_KERNEL_FUNC_CBTYPE(FWD, BACK, PRECISION, CallbackType::NONE)
 
-#define GET_KERNEL_FUNC_CB(FWD, BACK, PRECISION, EBTYPE, BASE_ARGS, ...)         \
-    void (*kernel_func)(BASE_ARGS(PRECISION), __VA_ARGS__) = nullptr;            \
-    if(data->get_callback_type() == CallbackType::NONE)                          \
-        GET_KERNEL_FUNC_CBTYPE(FWD, BACK, PRECISION, EBTYPE, CallbackType::NONE) \
-    else                                                                         \
-        GET_KERNEL_FUNC_CBTYPE(FWD, BACK, PRECISION, EBTYPE, CallbackType::USER_LOAD_STORE)
+#define GET_KERNEL_FUNC_CB(FWD, BACK, PRECISION, BASE_ARGS, ...)         \
+    void (*kernel_func)(BASE_ARGS(PRECISION), __VA_ARGS__) = nullptr;    \
+    if(data->get_callback_type() == CallbackType::NONE)                  \
+        GET_KERNEL_FUNC_CBTYPE(FWD, BACK, PRECISION, CallbackType::NONE) \
+    else                                                                 \
+        GET_KERNEL_FUNC_CBTYPE(FWD, BACK, PRECISION, CallbackType::USER_LOAD_STORE)
 
 // SBCC adds large twiddles
 #define KERNEL_BASE_ARGS_IP_SBCC(PRECISION) \
@@ -149,117 +169,125 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
 #define KERNEL_BASE_ARGS_OP_SBCC(PRECISION) \
     const PRECISION* __restrict__, KERNEL_BASE_ARGS_OP(PRECISION)
 
-#define GET_KERNEL_FUNC_CBTYPE_SBCC(FWD, BACK, PRECISION, EBTYPE, CBTYPE)               \
-    if(data->node->inStride[0] == 1 && data->node->outStride[0] == 1)                   \
-    {                                                                                   \
-        if(data->node->direction == -1)                                                 \
-        {                                                                               \
-            if(data->node->large1D)                                                     \
-            {                                                                           \
-                if(data->node->largeTwdBase == 4)                                       \
-                    kernel_func = FWD<PRECISION, SB_UNIT, EBTYPE, CBTYPE, true, 4>;     \
-                else if(data->node->largeTwdBase == 5)                                  \
-                    kernel_func = FWD<PRECISION, SB_UNIT, EBTYPE, CBTYPE, true, 5>;     \
-                else if(data->node->largeTwdBase == 6)                                  \
-                    kernel_func = FWD<PRECISION, SB_UNIT, EBTYPE, CBTYPE, true, 6>;     \
-                else                                                                    \
-                    kernel_func = FWD<PRECISION, SB_UNIT, EBTYPE, CBTYPE, true>;        \
-            }                                                                           \
-            else                                                                        \
-                kernel_func = FWD<PRECISION, SB_UNIT, EBTYPE, CBTYPE, false>;           \
-        }                                                                               \
-        else                                                                            \
-        {                                                                               \
-            if(data->node->large1D)                                                     \
-            {                                                                           \
-                if(data->node->largeTwdBase == 4)                                       \
-                    kernel_func = BACK<PRECISION, SB_UNIT, EBTYPE, CBTYPE, true, 4>;    \
-                else if(data->node->largeTwdBase == 5)                                  \
-                    kernel_func = BACK<PRECISION, SB_UNIT, EBTYPE, CBTYPE, true, 5>;    \
-                else if(data->node->largeTwdBase == 6)                                  \
-                    kernel_func = BACK<PRECISION, SB_UNIT, EBTYPE, CBTYPE, true, 6>;    \
-                else                                                                    \
-                    kernel_func = BACK<PRECISION, SB_UNIT, EBTYPE, CBTYPE, true>;       \
-            }                                                                           \
-            else                                                                        \
-                kernel_func = BACK<PRECISION, SB_UNIT, EBTYPE, CBTYPE, false>;          \
-        }                                                                               \
-    }                                                                                   \
-    else                                                                                \
-    {                                                                                   \
-        if(data->node->direction == -1)                                                 \
-        {                                                                               \
-            if(data->node->large1D)                                                     \
-            {                                                                           \
-                if(data->node->largeTwdBase == 4)                                       \
-                    kernel_func = FWD<PRECISION, SB_NONUNIT, EBTYPE, CBTYPE, true, 4>;  \
-                else if(data->node->largeTwdBase == 5)                                  \
-                    kernel_func = FWD<PRECISION, SB_NONUNIT, EBTYPE, CBTYPE, true, 5>;  \
-                else if(data->node->largeTwdBase == 6)                                  \
-                    kernel_func = FWD<PRECISION, SB_NONUNIT, EBTYPE, CBTYPE, true, 6>;  \
-                else                                                                    \
-                    kernel_func = FWD<PRECISION, SB_NONUNIT, EBTYPE, CBTYPE, true>;     \
-            }                                                                           \
-            else                                                                        \
-                kernel_func = FWD<PRECISION, SB_NONUNIT, EBTYPE, CBTYPE, false>;        \
-        }                                                                               \
-        else                                                                            \
-        {                                                                               \
-            if(data->node->large1D)                                                     \
-            {                                                                           \
-                if(data->node->largeTwdBase == 4)                                       \
-                    kernel_func = BACK<PRECISION, SB_NONUNIT, EBTYPE, CBTYPE, true, 4>; \
-                else if(data->node->largeTwdBase == 5)                                  \
-                    kernel_func = BACK<PRECISION, SB_NONUNIT, EBTYPE, CBTYPE, true, 5>; \
-                else if(data->node->largeTwdBase == 6)                                  \
-                    kernel_func = BACK<PRECISION, SB_NONUNIT, EBTYPE, CBTYPE, true, 6>; \
-                else                                                                    \
-                    kernel_func = BACK<PRECISION, SB_NONUNIT, EBTYPE, CBTYPE, true>;    \
-            }                                                                           \
-            else                                                                        \
-                kernel_func = BACK<PRECISION, SB_NONUNIT, EBTYPE, CBTYPE, false>;       \
-        }                                                                               \
-    }
-#define GET_KERNEL_FUNC_SBCC_CB(FWD, BACK, PRECISION, EBTYPE, BASE_ARGS, ...)         \
-    void (*kernel_func)(BASE_ARGS(PRECISION), __VA_ARGS__) = nullptr;                 \
-    if(data->get_callback_type() == CallbackType::NONE)                               \
-        GET_KERNEL_FUNC_CBTYPE_SBCC(FWD, BACK, PRECISION, EBTYPE, CallbackType::NONE) \
-    else                                                                              \
-        GET_KERNEL_FUNC_CBTYPE_SBCC(FWD, BACK, PRECISION, EBTYPE, CallbackType::USER_LOAD_STORE)
-#define GET_KERNEL_FUNC_SBCC(FWD, BACK, PRECISION, EBTYPE, BASE_ARGS, ...) \
-    void (*kernel_func)(BASE_ARGS(PRECISION), __VA_ARGS__) = nullptr;      \
-    GET_KERNEL_FUNC_CBTYPE_SBCC(FWD, BACK, PRECISION, EBTYPE, CallbackType::NONE)
-
-// SBRC has COL_DIM, TRANSPOSE_TYPE template args and is always out-of-place
-#define GET_KERNEL_FUNC_CBTYPE_SBRC(FWD, BACK, PRECISION, COL_DIM, TRANSPOSE_TYPE, EBTYPE, CBTYPE) \
+#define GET_KERNEL_FUNC_CBTYPE_SBCC(FWD, BACK, PRECISION, CBTYPE)                                  \
     if(data->node->inStride[0] == 1 && data->node->outStride[0] == 1)                              \
     {                                                                                              \
         if(data->node->direction == -1)                                                            \
-            kernel_func = FWD<PRECISION, SB_UNIT, COL_DIM, TRANSPOSE_TYPE, EBTYPE, CBTYPE>;        \
+        {                                                                                          \
+            if(data->node->large1D)                                                                \
+            {                                                                                      \
+                if(data->node->largeTwdBase == 4)                                                  \
+                    kernel_func = FWD<PRECISION, SB_UNIT, EmbeddedType::NONE, CBTYPE, true, 4>;    \
+                else if(data->node->largeTwdBase == 5)                                             \
+                    kernel_func = FWD<PRECISION, SB_UNIT, EmbeddedType::NONE, CBTYPE, true, 5>;    \
+                else if(data->node->largeTwdBase == 6)                                             \
+                    kernel_func = FWD<PRECISION, SB_UNIT, EmbeddedType::NONE, CBTYPE, true, 6>;    \
+                else                                                                               \
+                    kernel_func = FWD<PRECISION, SB_UNIT, EmbeddedType::NONE, CBTYPE, true>;       \
+            }                                                                                      \
+            else                                                                                   \
+                kernel_func = FWD<PRECISION, SB_UNIT, EmbeddedType::NONE, CBTYPE, false>;          \
+        }                                                                                          \
         else                                                                                       \
-            kernel_func = BACK<PRECISION, SB_UNIT, COL_DIM, TRANSPOSE_TYPE, EBTYPE, CBTYPE>;       \
+        {                                                                                          \
+            if(data->node->large1D)                                                                \
+            {                                                                                      \
+                if(data->node->largeTwdBase == 4)                                                  \
+                    kernel_func = BACK<PRECISION, SB_UNIT, EmbeddedType::NONE, CBTYPE, true, 4>;   \
+                else if(data->node->largeTwdBase == 5)                                             \
+                    kernel_func = BACK<PRECISION, SB_UNIT, EmbeddedType::NONE, CBTYPE, true, 5>;   \
+                else if(data->node->largeTwdBase == 6)                                             \
+                    kernel_func = BACK<PRECISION, SB_UNIT, EmbeddedType::NONE, CBTYPE, true, 6>;   \
+                else                                                                               \
+                    kernel_func = BACK<PRECISION, SB_UNIT, EmbeddedType::NONE, CBTYPE, true>;      \
+            }                                                                                      \
+            else                                                                                   \
+                kernel_func = BACK<PRECISION, SB_UNIT, EmbeddedType::NONE, CBTYPE, false>;         \
+        }                                                                                          \
     }                                                                                              \
     else                                                                                           \
     {                                                                                              \
         if(data->node->direction == -1)                                                            \
-            kernel_func = FWD<PRECISION, SB_NONUNIT, COL_DIM, TRANSPOSE_TYPE, EBTYPE, CBTYPE>;     \
+        {                                                                                          \
+            if(data->node->large1D)                                                                \
+            {                                                                                      \
+                if(data->node->largeTwdBase == 4)                                                  \
+                    kernel_func = FWD<PRECISION, SB_NONUNIT, EmbeddedType::NONE, CBTYPE, true, 4>; \
+                else if(data->node->largeTwdBase == 5)                                             \
+                    kernel_func = FWD<PRECISION, SB_NONUNIT, EmbeddedType::NONE, CBTYPE, true, 5>; \
+                else if(data->node->largeTwdBase == 6)                                             \
+                    kernel_func = FWD<PRECISION, SB_NONUNIT, EmbeddedType::NONE, CBTYPE, true, 6>; \
+                else                                                                               \
+                    kernel_func = FWD<PRECISION, SB_NONUNIT, EmbeddedType::NONE, CBTYPE, true>;    \
+            }                                                                                      \
+            else                                                                                   \
+                kernel_func = FWD<PRECISION, SB_NONUNIT, EmbeddedType::NONE, CBTYPE, false>;       \
+        }                                                                                          \
         else                                                                                       \
-            kernel_func = BACK<PRECISION, SB_NONUNIT, COL_DIM, TRANSPOSE_TYPE, EBTYPE, CBTYPE>;    \
+        {                                                                                          \
+            if(data->node->large1D)                                                                \
+            {                                                                                      \
+                if(data->node->largeTwdBase == 4)                                                  \
+                    kernel_func                                                                    \
+                        = BACK<PRECISION, SB_NONUNIT, EmbeddedType::NONE, CBTYPE, true, 4>;        \
+                else if(data->node->largeTwdBase == 5)                                             \
+                    kernel_func                                                                    \
+                        = BACK<PRECISION, SB_NONUNIT, EmbeddedType::NONE, CBTYPE, true, 5>;        \
+                else if(data->node->largeTwdBase == 6)                                             \
+                    kernel_func                                                                    \
+                        = BACK<PRECISION, SB_NONUNIT, EmbeddedType::NONE, CBTYPE, true, 6>;        \
+                else                                                                               \
+                    kernel_func = BACK<PRECISION, SB_NONUNIT, EmbeddedType::NONE, CBTYPE, true>;   \
+            }                                                                                      \
+            else                                                                                   \
+                kernel_func = BACK<PRECISION, SB_NONUNIT, EmbeddedType::NONE, CBTYPE, false>;      \
+        }                                                                                          \
     }
-#define GET_KERNEL_FUNC_SBRC_CB(                                                       \
-    FWD, BACK, PRECISION, COL_DIM, TRANSPOSE_TYPE, EBTYPE, BASE_ARGS, ...)             \
-    void (*kernel_func)(BASE_ARGS(PRECISION), __VA_ARGS__) = nullptr;                  \
-    if(data->get_callback_type() == CallbackType::NONE)                                \
-        GET_KERNEL_FUNC_CBTYPE_SBRC(                                                   \
-            FWD, BACK, PRECISION, COL_DIM, TRANSPOSE_TYPE, EBTYPE, CallbackType::NONE) \
-    else                                                                               \
-        GET_KERNEL_FUNC_CBTYPE_SBRC(                                                   \
-            FWD, BACK, PRECISION, COL_DIM, TRANSPOSE_TYPE, EBTYPE, CallbackType::USER_LOAD_STORE)
-#define GET_KERNEL_FUNC_SBRC(                                              \
-    FWD, BACK, PRECISION, COL_DIM, TRANSPOSE_TYPE, EBTYPE, BASE_ARGS, ...) \
-    void (*kernel_func)(BASE_ARGS(PRECISION), __VA_ARGS__) = nullptr;      \
-    GET_KERNEL_FUNC_CBTYPE_SBRC(                                           \
-        FWD, BACK, PRECISION, COL_DIM, TRANSPOSE_TYPE, EBTYPE, CallbackType::NONE)
+#define GET_KERNEL_FUNC_SBCC_CB(FWD, BACK, PRECISION, BASE_ARGS, ...)         \
+    void (*kernel_func)(BASE_ARGS(PRECISION), __VA_ARGS__) = nullptr;         \
+    if(data->get_callback_type() == CallbackType::NONE)                       \
+        GET_KERNEL_FUNC_CBTYPE_SBCC(FWD, BACK, PRECISION, CallbackType::NONE) \
+    else                                                                      \
+        GET_KERNEL_FUNC_CBTYPE_SBCC(FWD, BACK, PRECISION, CallbackType::USER_LOAD_STORE)
+#define GET_KERNEL_FUNC_SBCC(FWD, BACK, PRECISION, BASE_ARGS, ...)    \
+    void (*kernel_func)(BASE_ARGS(PRECISION), __VA_ARGS__) = nullptr; \
+    GET_KERNEL_FUNC_CBTYPE_SBCC(FWD, BACK, PRECISION, CallbackType::NONE)
+
+// SBRC has COL_DIM, TRANSPOSE_TYPE template args and is always out-of-place
+#define GET_KERNEL_FUNC_CBTYPE_SBRC(FWD, BACK, PRECISION, COL_DIM, TRANSPOSE_TYPE, CBTYPE)         \
+    if(data->node->inStride[0] == 1 && data->node->outStride[0] == 1)                              \
+    {                                                                                              \
+        if(data->node->direction == -1)                                                            \
+            kernel_func                                                                            \
+                = FWD<PRECISION, SB_UNIT, COL_DIM, TRANSPOSE_TYPE, EmbeddedType::NONE, CBTYPE>;    \
+        else                                                                                       \
+            kernel_func                                                                            \
+                = BACK<PRECISION, SB_UNIT, COL_DIM, TRANSPOSE_TYPE, EmbeddedType::NONE, CBTYPE>;   \
+    }                                                                                              \
+    else                                                                                           \
+    {                                                                                              \
+        if(data->node->direction == -1)                                                            \
+            kernel_func                                                                            \
+                = FWD<PRECISION, SB_NONUNIT, COL_DIM, TRANSPOSE_TYPE, EmbeddedType::NONE, CBTYPE>; \
+        else                                                                                       \
+            kernel_func = BACK<PRECISION,                                                          \
+                               SB_NONUNIT,                                                         \
+                               COL_DIM,                                                            \
+                               TRANSPOSE_TYPE,                                                     \
+                               EmbeddedType::NONE,                                                 \
+                               CBTYPE>;                                                            \
+    }
+#define GET_KERNEL_FUNC_SBRC_CB(FWD, BACK, PRECISION, COL_DIM, TRANSPOSE_TYPE, BASE_ARGS, ...) \
+    void (*kernel_func)(BASE_ARGS(PRECISION), __VA_ARGS__) = nullptr;                          \
+    if(data->get_callback_type() == CallbackType::NONE)                                        \
+        GET_KERNEL_FUNC_CBTYPE_SBRC(                                                           \
+            FWD, BACK, PRECISION, COL_DIM, TRANSPOSE_TYPE, CallbackType::NONE)                 \
+    else                                                                                       \
+        GET_KERNEL_FUNC_CBTYPE_SBRC(                                                           \
+            FWD, BACK, PRECISION, COL_DIM, TRANSPOSE_TYPE, CallbackType::USER_LOAD_STORE)
+#define GET_KERNEL_FUNC_SBRC(FWD, BACK, PRECISION, COL_DIM, TRANSPOSE_TYPE, BASE_ARGS, ...) \
+    void (*kernel_func)(BASE_ARGS(PRECISION), __VA_ARGS__) = nullptr;                       \
+    GET_KERNEL_FUNC_CBTYPE_SBRC(FWD, BACK, PRECISION, COL_DIM, TRANSPOSE_TYPE, CallbackType::NONE)
 
 #define POWX_SMALL_GENERATOR(FUNCTION_NAME,                                                   \
                              IP_FWD_KERN_NAME,                                                \
@@ -280,7 +308,6 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 GET_KERNEL_FUNC_CB(IP_FWD_KERN_NAME,                                          \
                                    IP_BACK_KERN_NAME,                                         \
                                    PRECISION,                                                 \
-                                   EmbeddedType::NONE,                                        \
                                    KERNEL_BASE_ARGS_IP,                                       \
                                    PRECISION* __restrict__);                                  \
                 hipLaunchKernelGGL(kernel_func,                                               \
@@ -307,7 +334,6 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 GET_KERNEL_FUNC(IP_FWD_KERN_NAME,                                             \
                                 IP_BACK_KERN_NAME,                                            \
                                 PRECISION,                                                    \
-                                EmbeddedType::NONE,                                           \
                                 KERNEL_BASE_ARGS_IP,                                          \
                                 real_type_t<PRECISION>* __restrict__,                         \
                                 real_type_t<PRECISION>* __restrict__);                        \
@@ -339,7 +365,6 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 GET_KERNEL_FUNC_CB(OP_FWD_KERN_NAME,                                          \
                                    OP_BACK_KERN_NAME,                                         \
                                    PRECISION,                                                 \
-                                   EmbeddedType::NONE,                                        \
                                    KERNEL_BASE_ARGS_OP,                                       \
                                    PRECISION* __restrict__,                                   \
                                    PRECISION* __restrict__);                                  \
@@ -369,7 +394,6 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 GET_KERNEL_FUNC(OP_FWD_KERN_NAME,                                             \
                                 OP_BACK_KERN_NAME,                                            \
                                 PRECISION,                                                    \
-                                EmbeddedType::NONE,                                           \
                                 KERNEL_BASE_ARGS_OP,                                          \
                                 PRECISION* __restrict__,                                      \
                                 real_type_t<PRECISION>* __restrict__,                         \
@@ -401,7 +425,6 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 GET_KERNEL_FUNC(OP_FWD_KERN_NAME,                                             \
                                 OP_BACK_KERN_NAME,                                            \
                                 PRECISION,                                                    \
-                                EmbeddedType::NONE,                                           \
                                 KERNEL_BASE_ARGS_OP,                                          \
                                 real_type_t<PRECISION>* __restrict__,                         \
                                 real_type_t<PRECISION>* __restrict__,                         \
@@ -433,7 +456,6 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 GET_KERNEL_FUNC(OP_FWD_KERN_NAME,                                             \
                                 OP_BACK_KERN_NAME,                                            \
                                 PRECISION,                                                    \
-                                EmbeddedType::NONE,                                           \
                                 KERNEL_BASE_ARGS_OP,                                          \
                                 real_type_t<PRECISION>* __restrict__,                         \
                                 real_type_t<PRECISION>* __restrict__,                         \
@@ -485,7 +507,6 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 GET_KERNEL_FUNC_SBCC_CB(IP_FWD_KERN_NAME,                                     \
                                         IP_BACK_KERN_NAME,                                    \
                                         PRECISION,                                            \
-                                        EmbeddedType::NONE,                                   \
                                         KERNEL_BASE_ARGS_IP_SBCC,                             \
                                         PRECISION* __restrict__);                             \
                 hipLaunchKernelGGL(kernel_func,                                               \
@@ -513,7 +534,6 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 GET_KERNEL_FUNC_SBCC(IP_FWD_KERN_NAME,                                        \
                                      IP_BACK_KERN_NAME,                                       \
                                      PRECISION,                                               \
-                                     EmbeddedType::NONE,                                      \
                                      KERNEL_BASE_ARGS_IP_SBCC,                                \
                                      real_type_t<PRECISION>* __restrict__,                    \
                                      real_type_t<PRECISION>* __restrict__);                   \
@@ -546,7 +566,6 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 GET_KERNEL_FUNC_SBCC_CB(OP_FWD_KERN_NAME,                                     \
                                         OP_BACK_KERN_NAME,                                    \
                                         PRECISION,                                            \
-                                        EmbeddedType::NONE,                                   \
                                         KERNEL_BASE_ARGS_OP_SBCC,                             \
                                         PRECISION* __restrict__,                              \
                                         PRECISION* __restrict__);                             \
@@ -577,7 +596,6 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 GET_KERNEL_FUNC_SBCC(OP_FWD_KERN_NAME,                                        \
                                      OP_BACK_KERN_NAME,                                       \
                                      PRECISION,                                               \
-                                     EmbeddedType::NONE,                                      \
                                      KERNEL_BASE_ARGS_OP_SBCC,                                \
                                      PRECISION* __restrict__,                                 \
                                      real_type_t<PRECISION>* __restrict__,                    \
@@ -610,7 +628,6 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 GET_KERNEL_FUNC_SBCC(OP_FWD_KERN_NAME,                                        \
                                      OP_BACK_KERN_NAME,                                       \
                                      PRECISION,                                               \
-                                     EmbeddedType::NONE,                                      \
                                      KERNEL_BASE_ARGS_OP_SBCC,                                \
                                      real_type_t<PRECISION>* __restrict__,                    \
                                      real_type_t<PRECISION>* __restrict__,                    \
@@ -643,7 +660,6 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 GET_KERNEL_FUNC_SBCC(OP_FWD_KERN_NAME,                                        \
                                      OP_BACK_KERN_NAME,                                       \
                                      PRECISION,                                               \
-                                     EmbeddedType::NONE,                                      \
                                      KERNEL_BASE_ARGS_OP_SBCC,                                \
                                      real_type_t<PRECISION>* __restrict__,                    \
                                      real_type_t<PRECISION>* __restrict__,                    \
@@ -692,7 +708,6 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                                     PRECISION,                                            \
                                     COL_DIM,                                              \
                                     TRANSPOSE_TYPE,                                       \
-                                    EmbeddedType::NONE,                                   \
                                     KERNEL_BASE_ARGS_OP,                                  \
                                     PRECISION* __restrict__,                              \
                                     PRECISION* __restrict__);                             \
@@ -724,7 +739,6 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                                  PRECISION,                                               \
                                  COL_DIM,                                                 \
                                  TRANSPOSE_TYPE,                                          \
-                                 EmbeddedType::NONE,                                      \
                                  KERNEL_BASE_ARGS_OP,                                     \
                                  PRECISION* __restrict__,                                 \
                                  real_type_t<PRECISION>* __restrict__,                    \
@@ -758,7 +772,6 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                                  PRECISION,                                               \
                                  COL_DIM,                                                 \
                                  TRANSPOSE_TYPE,                                          \
-                                 EmbeddedType::NONE,                                      \
                                  KERNEL_BASE_ARGS_OP,                                     \
                                  real_type_t<PRECISION>* __restrict__,                    \
                                  real_type_t<PRECISION>* __restrict__,                    \
@@ -792,7 +805,6 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                                  PRECISION,                                               \
                                  COL_DIM,                                                 \
                                  TRANSPOSE_TYPE,                                          \
-                                 EmbeddedType::NONE,                                      \
                                  KERNEL_BASE_ARGS_OP,                                     \
                                  real_type_t<PRECISION>* __restrict__,                    \
                                  real_type_t<PRECISION>* __restrict__,                    \
