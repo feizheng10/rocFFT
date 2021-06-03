@@ -74,7 +74,7 @@ bool PlanPowX(ExecPlan& execPlan)
                                              false,
                                              LTWD_BASE_DEFAULT,
                                              false,
-                                             false,
+                                             node->ebtype != EmbeddedType::NONE,
                                              kernel.factors);
             if(node->twiddles == nullptr)
                 return false;
@@ -201,6 +201,8 @@ bool PlanPowX(ExecPlan& execPlan)
                                                    : (batch / numTransforms);
                 gp.tpb_x = workGroupSize;
             }
+            if(execPlan.execSeq[i]->ebtype != EmbeddedType::NONE)
+                lds_padding = 1;
         }
         break;
         case CS_KERNEL_STOCKHAM_BLOCK_CC:

@@ -1201,6 +1201,22 @@ void TreeNode::build_real_even_1D()
 
     cfftPlan->placement = rocfft_placement_inplace;
 
+    // cfftPlan works in-place on the input buffer for R2C, on the
+    // output buffer for C2R
+
+    // NB: the buffer is real, but we treat it as complex
+    cfftPlan->RecursiveBuildTree();
+
+    // fuse pre/post-processing into fft if it's single-kernel
+    // and generated with new generator
+
+    // NOTE: get_kernel won't throw because we would only have a
+    // single kernel if it's in the function map.  We're also relying
+    // on the fact that old-generator would not populate factors.
+    bool singleKernelFFT
+        = cfftPlan->childNodes.empty()
+          && !function_pool::get_kernel(fpkey(cfftPlan->length.front(), precision)).factors.empty();
+
     switch(direction)
     {
     case -1:
@@ -1217,35 +1233,42 @@ void TreeNode::build_real_even_1D()
         applyCallback->placement = rocfft_placement_inplace;
         childNodes.emplace_back(std::move(applyCallback));
 
-        // cfftPlan works in-place on the input buffer.
-        // NB: the input buffer is real, but we treat it as complex
-        cfftPlan->RecursiveBuildTree();
+        if(singleKernelFFT)
+            cfftPlan->ebtype = EmbeddedType::Real2C_POST;
+
         childNodes.emplace_back(std::move(cfftPlan));
 
-        auto postPlan       = TreeNode::CreateNode(this);
-        postPlan->scheme    = CS_KERNEL_R_TO_CMPLX;
-        postPlan->dimension = 1;
-        postPlan->length    = length;
-        postPlan->length[0] /= 2;
+        // add separate post-processing if we couldn't fuse
+        if(!singleKernelFFT)
+        {
+            auto postPlan       = TreeNode::CreateNode(this);
+            postPlan->scheme    = CS_KERNEL_R_TO_CMPLX;
+            postPlan->dimension = 1;
+            postPlan->length    = length;
+            postPlan->length[0] /= 2;
 
-        childNodes.emplace_back(std::move(postPlan));
+            childNodes.emplace_back(std::move(postPlan));
+        }
         break;
     }
     case 1:
     {
         // complex-to-real transform: pre-process followed by in-place complex transform
 
-        auto prePlan       = TreeNode::CreateNode(this);
-        prePlan->scheme    = CS_KERNEL_CMPLX_TO_R;
-        prePlan->dimension = 1;
-        prePlan->length    = length;
-        prePlan->length[0] /= 2;
+        if(singleKernelFFT)
+            cfftPlan->ebtype = EmbeddedType::C2Real_PRE;
+        else
+        {
+            // add separate pre-processing if we couldn't fuse
+            auto prePlan       = TreeNode::CreateNode(this);
+            prePlan->scheme    = CS_KERNEL_CMPLX_TO_R;
+            prePlan->dimension = 1;
+            prePlan->length    = length;
+            prePlan->length[0] /= 2;
 
-        childNodes.emplace_back(std::move(prePlan));
+            childNodes.emplace_back(std::move(prePlan));
+        }
 
-        // cfftPlan works in-place on the output buffer.
-        // NB: the output buffer is real, but we treat it as complex
-        cfftPlan->RecursiveBuildTree();
         childNodes.emplace_back(std::move(cfftPlan));
 
         // insert a node that's prepared to apply the user's
@@ -2570,53 +2593,69 @@ void TreeNode::assign_buffers_CS_REAL_TRANSFORM_EVEN(TraverseState&   state,
         childNodes[0]->inArrayType  = rocfft_array_type_real;
         childNodes[0]->outArrayType = rocfft_array_type_real;
 
+        // we would have only 2 child nodes if we're able to fuse the
+        // post-processing into the single FFT kernel
+        bool fusedPostProcessing = childNodes[1]->ebtype == EmbeddedType::Real2C_POST;
+
         // complex FFT kernel
         childNodes[1]->SetInputBuffer(state);
-        childNodes[1]->obOut        = obIn;
+        childNodes[1]->obOut        = fusedPostProcessing ? obOut : obIn;
         childNodes[1]->inArrayType  = rocfft_array_type_complex_interleaved;
         childNodes[1]->outArrayType = rocfft_array_type_complex_interleaved;
         childNodes[1]->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
 
-        // real-to-complex post kernel
-        childNodes[2]->SetInputBuffer(state);
-        childNodes[2]->obOut        = obOut;
-        childNodes[2]->inArrayType  = rocfft_array_type_complex_interleaved;
-        childNodes[2]->outArrayType = outArrayType;
+        if(!fusedPostProcessing)
+        {
+            // real-to-complex post kernel
+            childNodes[2]->SetInputBuffer(state);
+            childNodes[2]->obOut        = obOut;
+            childNodes[2]->inArrayType  = rocfft_array_type_complex_interleaved;
+            childNodes[2]->outArrayType = outArrayType;
+        }
 
         flipIn  = flipIn0;
         flipOut = flipOut0;
     }
     else
     {
-        // complex-to-real
+        // we would only have 2 child nodes if we fused the
+        // pre-processing into the single FFT kernel
+        bool fusedPreProcessing = childNodes[0]->ebtype == EmbeddedType::C2Real_PRE;
 
-        // complex-to-real pre kernel
-        childNodes[0]->SetInputBuffer(state);
-        childNodes[0]->obOut = obOut;
+        auto& fftNode = fusedPreProcessing ? childNodes[0] : childNodes[1];
 
-        childNodes[0]->inArrayType  = inArrayType;
-        childNodes[0]->outArrayType = rocfft_array_type_complex_interleaved;
-
-        // NB: The case here indicates parent's input buffer is not
-        //     complex_planar or hermitian_planar, so the child must
-        //     be a hermitian_interleaved.
-        if(inArrayType == rocfft_array_type_complex_interleaved)
+        if(!fusedPreProcessing)
         {
-            childNodes[0]->inArrayType = rocfft_array_type_hermitian_interleaved;
+            // complex-to-real
+
+            // complex-to-real pre kernel
+            childNodes[0]->SetInputBuffer(state);
+            childNodes[0]->obOut = obOut;
+
+            childNodes[0]->inArrayType  = inArrayType;
+            childNodes[0]->outArrayType = rocfft_array_type_complex_interleaved;
+
+            // NB: The case here indicates parent's input buffer is not
+            //     complex_planar or hermitian_planar, so the child must
+            //     be a hermitian_interleaved.
+            if(inArrayType == rocfft_array_type_complex_interleaved)
+            {
+                childNodes[0]->inArrayType = rocfft_array_type_hermitian_interleaved;
+            }
         }
 
         // complex FFT kernel
-        childNodes[1]->SetInputBuffer(state);
-        childNodes[1]->obOut        = obOut;
-        childNodes[1]->inArrayType  = rocfft_array_type_complex_interleaved;
-        childNodes[1]->outArrayType = rocfft_array_type_complex_interleaved;
-        childNodes[1]->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
+        fftNode->SetInputBuffer(state);
+        fftNode->obOut        = obOut;
+        fftNode->inArrayType  = rocfft_array_type_complex_interleaved;
+        fftNode->outArrayType = rocfft_array_type_complex_interleaved;
+        fftNode->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
 
         // apply callback
-        childNodes[2]->obIn         = obOut;
-        childNodes[2]->obOut        = obOut;
-        childNodes[2]->inArrayType  = rocfft_array_type_real;
-        childNodes[2]->outArrayType = rocfft_array_type_real;
+        childNodes.back()->obIn         = obOut;
+        childNodes.back()->obOut        = obOut;
+        childNodes.back()->inArrayType  = rocfft_array_type_real;
+        childNodes.back()->outArrayType = rocfft_array_type_real;
     }
 }
 
@@ -3387,7 +3426,9 @@ void TreeNode::assign_params_CS_REAL_TRANSFORM_USING_CMPLX()
 
 void TreeNode::assign_params_CS_REAL_TRANSFORM_EVEN()
 {
-    assert(childNodes.size() == 3);
+    // definitely will have FFT + apply callback.  pre/post processing
+    // might be fused into the FFT or separate.
+    assert(childNodes.size() == 2 || childNodes.size() == 3);
 
     if(direction == -1)
     {
@@ -3417,54 +3458,71 @@ void TreeNode::assign_params_CS_REAL_TRANSFORM_EVEN()
         assert(fftPlan->length.size() == fftPlan->inStride.size());
         assert(fftPlan->length.size() == fftPlan->outStride.size());
 
-        auto& postPlan = childNodes[2];
-        assert(postPlan->scheme == CS_KERNEL_R_TO_CMPLX
-               || postPlan->scheme == CS_KERNEL_R_TO_CMPLX_TRANSPOSE);
-        postPlan->inStride = inStride;
-        for(int i = 1; i < postPlan->inStride.size(); ++i)
+        if(childNodes.size() == 3)
         {
-            postPlan->inStride[i] /= 2;
-        }
-        postPlan->iDist     = iDist / 2;
-        postPlan->outStride = outStride;
-        postPlan->oDist     = oDist;
+            auto& postPlan = childNodes[2];
+            assert(postPlan->scheme == CS_KERNEL_R_TO_CMPLX
+                   || postPlan->scheme == CS_KERNEL_R_TO_CMPLX_TRANSPOSE);
+            postPlan->inStride = inStride;
+            for(int i = 1; i < postPlan->inStride.size(); ++i)
+            {
+                postPlan->inStride[i] /= 2;
+            }
+            postPlan->iDist     = iDist / 2;
+            postPlan->outStride = outStride;
+            postPlan->oDist     = oDist;
 
-        assert(postPlan->length.size() == postPlan->inStride.size());
-        assert(postPlan->length.size() == postPlan->outStride.size());
+            assert(postPlan->length.size() == postPlan->inStride.size());
+            assert(postPlan->length.size() == postPlan->outStride.size());
+        }
+        else
+        {
+            // we fused post-proc into the FFT kernel, so give the correct out strides
+            fftPlan->outStride = outStride;
+            fftPlan->oDist     = oDist;
+        }
     }
     else
     {
+
         // backward transform, c2r
+        bool fusedPreProcessing = childNodes[0]->ebtype == EmbeddedType::C2Real_PRE;
 
         // oDist is in reals, subplan->oDist is in complexes
 
-        auto& prePlan = childNodes[0];
-        assert(prePlan->scheme == CS_KERNEL_CMPLX_TO_R);
-
-        prePlan->iDist = iDist;
-        prePlan->oDist = oDist / 2;
-
-        // Strides are actually distances for multimensional transforms.
-        // Only the first value is used, but we require dimension values.
-        prePlan->inStride  = inStride;
-        prePlan->outStride = outStride;
-        // Strides are in complex types
-        for(int i = 1; i < prePlan->outStride.size(); ++i)
+        if(!fusedPreProcessing)
         {
-            prePlan->outStride[i] /= 2;
+            auto& prePlan = childNodes[0];
+            assert(prePlan->scheme == CS_KERNEL_CMPLX_TO_R);
+
+            prePlan->iDist = iDist;
+            prePlan->oDist = oDist / 2;
+
+            // Strides are actually distances for multimensional transforms.
+            // Only the first value is used, but we require dimension values.
+            prePlan->inStride  = inStride;
+            prePlan->outStride = outStride;
+            // Strides are in complex types
+            for(int i = 1; i < prePlan->outStride.size(); ++i)
+            {
+                prePlan->outStride[i] /= 2;
+            }
+            assert(prePlan->length.size() == prePlan->inStride.size());
+            assert(prePlan->length.size() == prePlan->outStride.size());
         }
 
-        auto& fftPlan = childNodes[1];
+        auto& fftPlan = fusedPreProcessing ? childNodes[0] : childNodes[1];
         // Transform the strides from real to complex.
 
-        fftPlan->inStride  = outStride;
-        fftPlan->iDist     = oDist / 2;
+        fftPlan->inStride  = fusedPreProcessing ? inStride : outStride;
+        fftPlan->iDist     = fusedPreProcessing ? iDist : oDist / 2;
         fftPlan->outStride = outStride;
-        fftPlan->oDist     = fftPlan->iDist;
+        fftPlan->oDist     = oDist / 2;
         // The strides must be translated from real to complex.
         for(int i = 1; i < fftPlan->inStride.size(); ++i)
         {
-            fftPlan->inStride[i] /= 2;
+            if(!fusedPreProcessing)
+                fftPlan->inStride[i] /= 2;
             fftPlan->outStride[i] /= 2;
         }
 
@@ -3472,15 +3530,12 @@ void TreeNode::assign_params_CS_REAL_TRANSFORM_EVEN()
         assert(fftPlan->length.size() == fftPlan->inStride.size());
         assert(fftPlan->length.size() == fftPlan->outStride.size());
 
-        assert(prePlan->length.size() == prePlan->inStride.size());
-        assert(prePlan->length.size() == prePlan->outStride.size());
-
         // we apply callbacks on the root plan's output
         TreeNode* rootPlan = this;
         while(rootPlan->parent != nullptr)
             rootPlan = rootPlan->parent;
 
-        auto& applyCallback      = childNodes[2];
+        auto& applyCallback      = childNodes.back();
         applyCallback->inStride  = rootPlan->outStride;
         applyCallback->iDist     = rootPlan->oDist;
         applyCallback->outStride = rootPlan->outStride;
@@ -4610,10 +4665,16 @@ void TreeNode::Print(rocfft_ostream& os, const int indent) const
     for(size_t i = 0; i < outStride.size(); i++)
         os << outStride[i] << " ";
 
-    os << "\n" << indentStr.c_str();
-    os << "iOffset: " << iOffset;
-    os << "\n" << indentStr.c_str();
-    os << "oOffset: " << oOffset;
+    if(iOffset)
+    {
+        os << "\n" << indentStr.c_str();
+        os << "iOffset: " << iOffset;
+    }
+    if(oOffset)
+    {
+        os << "\n" << indentStr.c_str();
+        os << "oOffset: " << oOffset;
+    }
 
     os << "\n" << indentStr.c_str();
     os << "iDist: " << iDist;
@@ -4675,9 +4736,25 @@ void TreeNode::Print(rocfft_ostream& os, const int indent) const
         os << "unset";
         break;
     }
-    os << "\n" << indentStr.c_str() << "large1D: " << large1D;
-    os << "\n" << indentStr.c_str() << "largeTwdBase: " << largeTwdBase;
-    os << "\n" << indentStr.c_str() << "lengthBlue: " << lengthBlue << "\n";
+    if(large1D)
+    {
+        os << "\n" << indentStr.c_str() << "large1D: " << large1D;
+        os << "\n" << indentStr.c_str() << "largeTwdBase: " << largeTwdBase;
+    }
+    if(lengthBlue)
+        os << "\n" << indentStr.c_str() << "lengthBlue: " << lengthBlue;
+    os << "\n";
+    switch(ebtype)
+    {
+    case EmbeddedType::NONE:
+        break;
+    case EmbeddedType::C2Real_PRE:
+        os << indentStr.c_str() << "EmbeddedType: C2Real_PRE\n";
+        break;
+    case EmbeddedType::Real2C_POST:
+        os << indentStr.c_str() << "EmbeddedType: Real2C_POST\n";
+        break;
+    }
 
     os << indentStr << PrintOperatingBuffer(obIn) << " -> " << PrintOperatingBuffer(obOut) << "\n";
     os << indentStr << PrintOperatingBufferCode(obIn) << " -> " << PrintOperatingBufferCode(obOut)
@@ -4747,6 +4824,17 @@ void Optimize_Transpose_With_Strides(ExecPlan& execPlan, std::vector<TreeNode*>&
         auto stockham = *it;
         if(stockham->scheme != CS_KERNEL_STOCKHAM)
             continue;
+
+        // if we're a child of a plan that we know is doing TR
+        // instead of RT, we don't want to combine the wrong pairs.
+        auto parent = stockham->parent;
+        if(parent != nullptr)
+        {
+            if(parent->scheme == CS_3D_TRTRTR
+               || (parent->scheme == CS_REAL_3D_EVEN && parent->direction == 1)
+               || (parent->scheme == CS_REAL_2D_EVEN && parent->direction == 1))
+                continue;
+        }
 
         size_t wgs, numTrans;
         DetermineSizes(stockham->length[0], wgs, numTrans);

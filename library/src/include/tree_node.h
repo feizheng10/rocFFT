@@ -29,6 +29,7 @@
 
 #include "../../../shared/gpubuf.h"
 #include "../device/kernels/callback.h"
+#include "../device/kernels/common.h"
 #include "kargs.h"
 #include "rocfft_ostream.hpp"
 #include "twiddles.h"
@@ -167,6 +168,9 @@ public:
     // flag indicating if using the 3-step decomp. for large twiddle? (16^3, 32^3, 64^3)
     // if false, always use 8 as the base (256*256*256....)
     bool largeTwd3Steps = false;
+
+    // embedded C2R/R2C pre/post processing
+    EmbeddedType ebtype = EmbeddedType::NONE;
 
     // Tree structure:
     // non-owning pointer to parent node, may be null
