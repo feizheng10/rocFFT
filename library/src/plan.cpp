@@ -949,8 +949,6 @@ static bool SBCC_dim_available(const std::vector<size_t>& length,
                                size_t                     sbcc_dim,
                                rocfft_precision           precision)
 {
-    return true;
-    /*
     // Check the C part.
     // The first R is built recursively with 2D_FFT, leave the check part to themselves
     size_t numTrans = 0;
@@ -998,7 +996,7 @@ static bool SBCC_dim_available(const std::vector<size_t>& length,
             return false;
     }
 
-    return true;*/
+    return true;
 }
 
 // do we have an SBCC kernel for this specific size?
