@@ -2599,9 +2599,10 @@ void TreeNode::assign_buffers_CS_REAL_TRANSFORM_EVEN(TraverseState&   state,
 
         // complex FFT kernel
         childNodes[1]->SetInputBuffer(state);
-        childNodes[1]->obOut        = fusedPostProcessing ? obOut : obIn;
-        childNodes[1]->inArrayType  = rocfft_array_type_complex_interleaved;
-        childNodes[1]->outArrayType = rocfft_array_type_complex_interleaved;
+        childNodes[1]->obOut       = fusedPostProcessing ? obOut : obIn;
+        childNodes[1]->inArrayType = rocfft_array_type_complex_interleaved;
+        childNodes[1]->outArrayType
+            = fusedPostProcessing ? outArrayType : rocfft_array_type_complex_interleaved;
         childNodes[1]->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
 
         if(!fusedPostProcessing)
@@ -2646,8 +2647,9 @@ void TreeNode::assign_buffers_CS_REAL_TRANSFORM_EVEN(TraverseState&   state,
 
         // complex FFT kernel
         fftNode->SetInputBuffer(state);
-        fftNode->obOut        = obOut;
-        fftNode->inArrayType  = rocfft_array_type_complex_interleaved;
+        fftNode->obOut = obOut;
+        fftNode->inArrayType
+            = fusedPreProcessing ? inArrayType : rocfft_array_type_complex_interleaved;
         fftNode->outArrayType = rocfft_array_type_complex_interleaved;
         fftNode->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
 
