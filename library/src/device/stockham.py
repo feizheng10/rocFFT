@@ -333,7 +333,7 @@ class StockhamTiling(AdditionalArgumentMixin):
              stmts += Call(function_name,
                     templates = TemplateList(scalar_type, Ndiv4),
                     arguments = ArgumentList(thread % quarter_N + i * param.threads_per_transform,
-                        half_N - thread % quarter_N - i * param.threads_per_transform, half_N, quarter_N,
+                        half_N - thread % quarter_N - i * param.threads_per_transform, quarter_N,
                         lds[offset_lds].address(),
                         0, twiddles[half_N].address()),)
         if (isPre):
