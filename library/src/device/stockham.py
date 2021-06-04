@@ -308,8 +308,8 @@ class StockhamTiling(AdditionalArgumentMixin):
     def real2cmplx_pre_post(self, half_N, isPre, param, thread=None, thread_id=None, lds=None,
             offset_lds=None, twiddles=None, lds_padding=None, embedded_type=None, scalar_type=None,
             buf=None, offset=None, stride=None, **kwargs):
-        """Return code to handle even-length real to complex pre-process in lds."""
-        
+        """Return code to handle even-length real to complex pre/post-process in lds."""
+
         function_name = f'real_pre_process_kernel_inplace' if isPre else f'real_post_process_kernel_inplace'
         template_type = 'EmbeddedType::C2Real_PRE' if isPre else 'EmbeddedType::Real2C_POST'
         Ndiv4  = 'true' if half_N % 2 == 0 else 'false'
