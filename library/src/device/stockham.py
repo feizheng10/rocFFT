@@ -305,8 +305,8 @@ class StockhamTiling(AdditionalArgumentMixin):
         """Return code to store LDS to global buffer."""
         return StatementList()
 
-    def real2cmplx_pre_post(self, half_N, isPre, param, thread_id=None, lds=None,
-            twiddles=None, lds_padding=None, embedded_type=None, scalar_type=None,
+    def real2cmplx_pre_post(self, half_N, isPre, param, thread=None, thread_id=None, lds=None,
+            offset_lds=None, twiddles=None, lds_padding=None, embedded_type=None, scalar_type=None,
             buf=None, offset=None, stride=None, **kwargs):
         """Return code to handle even-length real to complex pre-process in lds."""
         
@@ -314,6 +314,8 @@ class StockhamTiling(AdditionalArgumentMixin):
         template_type = 'EmbeddedType::C2Real_PRE' if isPre else 'EmbeddedType::Real2C_POST'
         Ndiv4  = 'true' if half_N % 2 == 0 else 'false'
         quarter_N = half_N // 2
+        if half_N % 2 == 1:
+            quarter_N += 1
 
         stmts = StatementList()
 
@@ -326,13 +328,18 @@ class StockhamTiling(AdditionalArgumentMixin):
             stmts += Call(f'printf',arguments= ArgumentList('"threads_per_block is too small for even-length c2r/r2r!"'),)
         else:
             # Todo: For case threads_per_transform == quarter_N, we could save one more "if" in the c2r/r2r kernels
-            r2c_transforms_per_block = param.transforms_per_block // (param.threads_per_block // quarter_N)
-            for i in range(r2c_transforms_per_block):
+
+            # if we have fewer threads per transform than quarter_N,
+            # we need to call the pre/post function multiple times
+            r2c_calls_per_transform = quarter_N // param.threads_per_transform
+            if quarter_N % param.threads_per_transform > 0:
+                r2c_calls_per_transform += 1
+            for i in range(r2c_calls_per_transform):
                  stmts += Call(function_name,
                         templates = TemplateList(scalar_type, Ndiv4),
-                        arguments= ArgumentList(thread_id  % quarter_N,
-                            half_N - thread_id % quarter_N, half_N, quarter_N,
-                            lds[thread_id / quarter_N * B(half_N + lds_padding) + i * B(half_N + lds_padding)].address(),
+                        arguments = ArgumentList(thread % quarter_N + i * param.threads_per_transform,
+                            half_N - thread % quarter_N - i * param.threads_per_transform, half_N, quarter_N,
+                            lds[offset_lds].address(),
                             0, twiddles[half_N].address()),)
         if (isPre):
             stmts += SyncThreads()
