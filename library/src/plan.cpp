@@ -2876,9 +2876,10 @@ void TreeNode::assign_buffers_CS_REAL_3D_EVEN(TraverseState&   state,
         }
 
         // c2r
+        auto& previousNode = childNodes[childNodes.size() - 2];
         childNodes.back()->SetInputBuffer(state);
         childNodes.back()->obOut        = obOutBuf;
-        childNodes.back()->inArrayType  = rocfft_array_type_complex_interleaved;
+        childNodes.back()->inArrayType  = previousNode->outArrayType;
         childNodes.back()->outArrayType = outArrayType;
         childNodes.back()->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
 
