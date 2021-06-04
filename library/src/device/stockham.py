@@ -322,25 +322,20 @@ class StockhamTiling(AdditionalArgumentMixin):
         stmts += SyncThreads() # Todo: We might not have to sync here which depends on the access pattern
         stmts += LineBreak()
 
-        if (param.threads_per_block < quarter_N):
-            # NB: Technically, we still can handle it...but would rather pop up a warning.
-            #     Or throw exception?
-            stmts += Call(f'printf',arguments= ArgumentList('"threads_per_block is too small for even-length c2r/r2r!"'),)
-        else:
-            # Todo: For case threads_per_transform == quarter_N, we could save one more "if" in the c2r/r2r kernels
+        # Todo: For case threads_per_transform == quarter_N, we could save one more "if" in the c2r/r2r kernels
 
-            # if we have fewer threads per transform than quarter_N,
-            # we need to call the pre/post function multiple times
-            r2c_calls_per_transform = quarter_N // param.threads_per_transform
-            if quarter_N % param.threads_per_transform > 0:
-                r2c_calls_per_transform += 1
-            for i in range(r2c_calls_per_transform):
-                 stmts += Call(function_name,
-                        templates = TemplateList(scalar_type, Ndiv4),
-                        arguments = ArgumentList(thread % quarter_N + i * param.threads_per_transform,
-                            half_N - thread % quarter_N - i * param.threads_per_transform, half_N, quarter_N,
-                            lds[offset_lds].address(),
-                            0, twiddles[half_N].address()),)
+        # if we have fewer threads per transform than quarter_N,
+        # we need to call the pre/post function multiple times
+        r2c_calls_per_transform = quarter_N // param.threads_per_transform
+        if quarter_N % param.threads_per_transform > 0:
+            r2c_calls_per_transform += 1
+        for i in range(r2c_calls_per_transform):
+             stmts += Call(function_name,
+                    templates = TemplateList(scalar_type, Ndiv4),
+                    arguments = ArgumentList(thread % quarter_N + i * param.threads_per_transform,
+                        half_N - thread % quarter_N - i * param.threads_per_transform, half_N, quarter_N,
+                        lds[offset_lds].address(),
+                        0, twiddles[half_N].address()),)
         if (isPre):
             stmts += SyncThreads()
             stmts += LineBreak()
