@@ -111,6 +111,7 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
     const PRECISION* __restrict__, const size_t, const size_t* __restrict__,              \
         const size_t* __restrict__, const size_t, const unsigned int, void* __restrict__, \
         void* __restrict__, uint32_t, void* __restrict__, void* __restrict__
+
 #define KERNEL_BASE_ARGS_OP(PRECISION)                                                            \
     const PRECISION* __restrict__, const size_t, const size_t* __restrict__,                      \
         const size_t* __restrict__, const size_t* __restrict__, const size_t, const unsigned int, \

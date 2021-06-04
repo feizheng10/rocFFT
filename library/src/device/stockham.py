@@ -127,10 +127,10 @@ def common_variables(length, params, nregisters):
 
         # lds storage buffer
         lds_uchar     = Variable('lds_uchar', 'unsigned char',
-                              size='dynamic',  post_qualifier='__align__(sizeof(scalar_type))',
-                              array=True, shared=True),
-        lds           = Variable('lds', 'scalar_type', array=True, restrict=True, pointer=True,
-                               value = 'reinterpret_cast<scalar_type *>(lds_uchar)'), # FIXME: do it in AST properly
+                            size='dynamic',  post_qualifier='__align__(sizeof(scalar_type))',
+                            array=True, shared=True),
+        lds = Variable('lds', 'scalar_type', array=True, restrict=True, pointer=True,
+                       value = 'reinterpret_cast<scalar_type *>(lds_uchar)'), # FIXME: do it in AST properly),
 
         # hip thread block id
         block_id = Variable('blockIdx.x'),
