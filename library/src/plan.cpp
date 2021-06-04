@@ -1043,8 +1043,19 @@ bool TreeNode::use_CS_2D_SINGLE()
 
 bool TreeNode::use_CS_2D_RC()
 {
-    // check SBCC availability along Y dimension
-    return SBCC_dim_available(length, 1, precision);
+    //   For CS_2D_RC, we are reusing SBCC kernel for 1D middle size. The
+    //   current implementation of 1D SBCC supports only 64, 128, and 256.
+    //   However, technically no LDS limitation along the fast dimension
+    //   on upper bound for 2D SBCC cases, and even should not limit to pow
+    //   of 2.
+
+    std::set<int> sbcc_support = {50, 64, 81, 100, 128, 200, 256, 336};
+    if((sbcc_support.find(length[1]) != sbcc_support.end()) && (length[0] >= 56))
+    {
+        return true;
+    }
+
+    return false;
 }
 
 size_t TreeNode::count_3D_SBRC_nodes()
@@ -1079,34 +1090,47 @@ bool TreeNode::use_CS_3D_RC()
     if(iDist == 1 || oDist == 1)
         return false;
 
-    // check SBCC availability along Z dimension
-    if(!SBCC_dim_available(length, 2, precision))
-        return false;
+    try
+    {
+        // Check the C part.
+        // The first R is built recursively with 2D_FFT, leave the check part to themselves
+        auto krn
+            = function_pool::get_kernel(fpkey(length[2], precision, CS_KERNEL_STOCKHAM_BLOCK_CC));
 
-    // hack for this special case
-    // this size is rejected by the following conservative threshold (#-elems)
-    // however it can use 3D_RC and get much better performance
-    std::vector<size_t> special_case{56, 336, 336};
-    if(length == special_case && precision == rocfft_precision_double)
+        // hack for this special case
+        // this size is rejected by the following conservative threshold (#-elems)
+        // however it can use 3D_RC and get much better performance
+        std::vector<size_t> special_case{56, 336, 336};
+        if(length == special_case && precision == rocfft_precision_double)
+            return true;
+
+        // x-dim should be >= the blockwidth, or it might perform worse..
+        if(length[0] < krn.batches_per_block)
+            return false;
+        // we don't want a too-large 3D block, sbcc along z-dim might be bad
+        if((length[0] * length[1] * length[2]) >= (128 * 128 * 128))
+            return false;
+
+        // Peek the first child
+        // Give up if 1st child is 2D_RTRT (means the poor RTRT_C),
+        auto child0       = TreeNode::CreateNode(this);
+        child0->length    = length;
+        child0->dimension = 2;
+        child0->RecursiveBuildTree();
+        if(child0->scheme == CS_2D_RTRT)
+            return false;
+
+        // if we are here, the 2D sheme is either
+        // 2D_SINGLE+CC (2 kernels) or 2D_RC+CC (3 kernels),
+        assert(child0->scheme == CS_KERNEL_2D_SINGLE || child0->scheme == CS_2D_RC);
         return true;
-
-    // we don't want a too-large 3D block, sbcc along z-dim might be bad
-    if(length[0] * length[1] * length[2] >= (128 * 128 * 128))
+    }
+    catch(...)
+    {
         return false;
+    }
 
-    // Peek the first child
-    // Give up if 1st child is 2D_RTRT (means the poor RTRT_C),
-    auto child0       = TreeNode::CreateNode(this);
-    child0->length    = length;
-    child0->dimension = 2;
-    child0->RecursiveBuildTree();
-    if(child0->scheme == CS_2D_RTRT)
-        return false;
-
-    // if we are here, the 2D sheme is either
-    // 2D_SINGLE+CC (2 kernels) or 2D_RC+CC (3 kernels),
-    assert(child0->scheme == CS_KERNEL_2D_SINGLE || child0->scheme == CS_2D_RC);
-    return true;
+    return false;
 }
 
 bool TreeNode::use_CS_KERNEL_TRANSPOSE_Z_XY()
@@ -2066,6 +2090,12 @@ void TreeNode::build_1DCS_L1D_CRT(const size_t divLength0, const size_t divLengt
 
 void TreeNode::build_CS_2D_RC()
 {
+    if(!function_pool::has_function(fpkey(length[1], precision, CS_KERNEL_STOCKHAM_BLOCK_CC)))
+    {
+        PrintFailInfo(precision, length[1], scheme, length[1], CS_KERNEL_STOCKHAM_BLOCK_CC);
+        assert(false);
+    }
+
     // row fft
     auto rowPlan = TreeNode::CreateNode(this);
 
@@ -2094,8 +2124,7 @@ void TreeNode::build_CS_2D_RC()
         colPlan->length.push_back(length[index]);
     }
 
-    colPlan->scheme = have_SBCC_kernel(colPlan->length[0], precision) ? CS_KERNEL_STOCKHAM_BLOCK_CC
-                                                                      : CS_KERNEL_STOCKHAM;
+    colPlan->scheme = CS_KERNEL_STOCKHAM_BLOCK_CC;
     childNodes.emplace_back(std::move(colPlan));
 }
 
@@ -2320,8 +2349,8 @@ void TreeNode::build_CS_3D_RC()
         zPlan->length.push_back(length[index]);
     }
 
-    zPlan->scheme = have_SBCC_kernel(zPlan->length[0], precision) ? CS_KERNEL_STOCKHAM_BLOCK_CC
-                                                                  : CS_KERNEL_STOCKHAM;
+    // zPlan->scheme = CS_KERNEL_3D_STOCKHAM_BLOCK_CC;
+    zPlan->scheme = CS_KERNEL_STOCKHAM_BLOCK_CC;
     childNodes.emplace_back(std::move(zPlan));
 }
 
@@ -4571,6 +4600,8 @@ void TreeNode::assign_params_CS_3D_RC_STRAIGHT()
     auto& zPlan  = childNodes[1];
 
     // B -> B
+    assert((xyPlan->obOut == OB_USER_OUT) || (xyPlan->obOut == OB_TEMP_CMPLX_FOR_REAL)
+           || (xyPlan->obOut == OB_TEMP_BLUESTEIN));
     xyPlan->inStride = inStride;
     xyPlan->iDist    = iDist;
 
@@ -4580,6 +4611,8 @@ void TreeNode::assign_params_CS_3D_RC_STRAIGHT()
     xyPlan->TraverseTreeAssignParamsLogicA();
 
     // B -> B
+    assert((zPlan->obOut == OB_USER_OUT) || (zPlan->obOut == OB_TEMP_CMPLX_FOR_REAL)
+           || (zPlan->obOut == OB_TEMP_BLUESTEIN));
     zPlan->inStride.push_back(inStride[2]);
     zPlan->inStride.push_back(inStride[0]);
     zPlan->inStride.push_back(inStride[1]);
