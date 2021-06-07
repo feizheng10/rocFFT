@@ -4852,17 +4852,6 @@ void Optimize_Transpose_With_Strides(ExecPlan& execPlan, std::vector<TreeNode*>&
         if(stockham->scheme != CS_KERNEL_STOCKHAM)
             continue;
 
-        // if we're a child of a plan that we know is doing TR
-        // instead of RT, we don't want to combine the wrong pairs.
-        auto parent = stockham->parent;
-        if(parent != nullptr)
-        {
-            if(parent->scheme == CS_3D_TRTRTR
-               || (parent->scheme == CS_REAL_3D_EVEN && parent->direction == 1)
-               || (parent->scheme == CS_REAL_2D_EVEN && parent->direction == 1))
-                continue;
-        }
-
         size_t wgs, numTrans;
         DetermineSizes(stockham->length[0], wgs, numTrans);
         if(numTrans < 2)
