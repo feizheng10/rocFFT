@@ -1209,7 +1209,7 @@ void TreeNode::build_real_embed()
     childNodes.emplace_back(std::move(copyTailPlan));
 }
 
-void TreeNode::build_real_even_1D()
+void TreeNode::build_real_even_1D(bool fuse_pre_post_processing)
 {
     // Fastest moving dimension must be even:
     assert(length[0] % 2 == 0);
@@ -1238,6 +1238,8 @@ void TreeNode::build_real_even_1D()
     bool singleKernelFFT
         = cfftPlan->childNodes.empty()
           && !function_pool::get_kernel(fpkey(cfftPlan->length.front(), precision)).factors.empty();
+    if(!singleKernelFFT)
+        fuse_pre_post_processing = false;
 
     switch(direction)
     {
@@ -1255,13 +1257,13 @@ void TreeNode::build_real_even_1D()
         applyCallback->placement = rocfft_placement_inplace;
         childNodes.emplace_back(std::move(applyCallback));
 
-        if(singleKernelFFT)
+        if(fuse_pre_post_processing)
             cfftPlan->ebtype = EmbeddedType::Real2C_POST;
 
         childNodes.emplace_back(std::move(cfftPlan));
 
         // add separate post-processing if we couldn't fuse
-        if(!singleKernelFFT)
+        if(!fuse_pre_post_processing)
         {
             auto postPlan       = TreeNode::CreateNode(this);
             postPlan->scheme    = CS_KERNEL_R_TO_CMPLX;
@@ -1277,7 +1279,7 @@ void TreeNode::build_real_even_1D()
     {
         // complex-to-real transform: pre-process followed by in-place complex transform
 
-        if(singleKernelFFT)
+        if(fuse_pre_post_processing)
             cfftPlan->ebtype = EmbeddedType::C2Real_PRE;
         else
         {
@@ -1449,9 +1451,22 @@ void TreeNode::build_real_even_3D()
 
     scheme = CS_REAL_3D_EVEN;
 
-    // if we have SBCC kernels for the other two dimensions, transform them using SBCC and avoid transposes
+    // if we have SBCC kernels for the other two dimensions, transform them using SBCC and avoid transposes.
     bool sbcc_inplace
         = SBCC_dim_available(length, 1, precision) && SBCC_dim_available(length, 2, precision);
+    // ensure the fastest dimension is big enough to get enough
+    // column tiles to perform well
+    if(length[0] <= 52)
+        sbcc_inplace = false;
+    // if all 3 lengths are SBRC-able, then R2C will already be 3
+    // kernel.  SBRC should be slightly better since row accesses
+    // should be a bit nicer in general than column accesses.
+    if(function_pool::has_function(fpkey(length[0] / 2, precision, CS_KERNEL_STOCKHAM_BLOCK_RC))
+       && function_pool::has_function(fpkey(length[1], precision, CS_KERNEL_STOCKHAM_BLOCK_RC))
+       && function_pool::has_function(fpkey(length[2], precision, CS_KERNEL_STOCKHAM_BLOCK_RC)))
+    {
+        sbcc_inplace = false;
+    }
     auto add_sbcc_children = [this](const std::vector<size_t>& remainingLength) {
         // SBCC along Z dimension
         auto sbccZ    = TreeNode::CreateNode(this);
@@ -1479,7 +1494,7 @@ void TreeNode::build_real_even_3D()
             auto rcplan       = TreeNode::CreateNode(this);
             rcplan->length    = length;
             rcplan->dimension = 1;
-            rcplan->build_real_even_1D();
+            rcplan->build_real_even_1D(sbcc_inplace);
             childNodes.emplace_back(std::move(rcplan));
         }
 
@@ -1605,7 +1620,7 @@ void TreeNode::build_real_even_3D()
             auto crplan       = TreeNode::CreateNode(this);
             crplan->length    = length;
             crplan->dimension = 1;
-            crplan->build_real_even_1D();
+            crplan->build_real_even_1D(sbcc_inplace);
             childNodes.emplace_back(std::move(crplan));
         }
     }
@@ -2812,9 +2827,9 @@ void TreeNode::assign_buffers_CS_REAL_3D_EVEN(TraverseState&   state,
 
             // T
             childNodes[1]->SetInputBuffer(state);
-            childNodes[1]->obOut        = OB_TEMP;
+            childNodes[1]->obOut        = obOutBuf;
             childNodes[1]->inArrayType  = childNodes[0]->outArrayType;
-            childNodes[1]->outArrayType = rocfft_array_type_complex_interleaved;
+            childNodes[1]->outArrayType = outArrayType;
 
             // R: c2c
             childNodes[2]->inArrayType  = childNodes[1]->outArrayType;
