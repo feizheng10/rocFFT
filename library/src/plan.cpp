@@ -1454,9 +1454,9 @@ void TreeNode::build_real_even_3D()
     // if we have SBCC kernels for the other two dimensions, transform them using SBCC and avoid transposes.
     bool sbcc_inplace
         = SBCC_dim_available(length, 1, precision) && SBCC_dim_available(length, 2, precision);
-    // ensure the fastest dimension is big enough to get enough
+    // ensure the fastest dimensions are big enough to get enough
     // column tiles to perform well
-    if(length[0] <= 52)
+    if(length[0] <= 52 && length[1] <= 52)
         sbcc_inplace = false;
     // if all 3 lengths are SBRC-able, then R2C will already be 3
     // kernel.  SBRC should be slightly better since row accesses
