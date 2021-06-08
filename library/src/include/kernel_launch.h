@@ -152,11 +152,9 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
                 kernel_func = BACK<PRECISION, SB_NONUNIT, EmbeddedType::NONE, CBTYPE>;       \
         }                                                                                    \
     }
-
 #define GET_KERNEL_FUNC(FWD, BACK, PRECISION, BASE_ARGS, ...)         \
     void (*kernel_func)(BASE_ARGS(PRECISION), __VA_ARGS__) = nullptr; \
     GET_KERNEL_FUNC_CBTYPE(FWD, BACK, PRECISION, CallbackType::NONE)
-
 #define GET_KERNEL_FUNC_CB(FWD, BACK, PRECISION, BASE_ARGS, ...)         \
     void (*kernel_func)(BASE_ARGS(PRECISION), __VA_ARGS__) = nullptr;    \
     if(data->get_callback_type() == CallbackType::NONE)                  \
@@ -169,7 +167,6 @@ void rocfft_internal_transpose_var2(const void* data_p, void* back_p);
     const PRECISION* __restrict__, KERNEL_BASE_ARGS_IP(PRECISION)
 #define KERNEL_BASE_ARGS_OP_SBCC(PRECISION) \
     const PRECISION* __restrict__, KERNEL_BASE_ARGS_OP(PRECISION)
-
 #define GET_KERNEL_FUNC_CBTYPE_SBCC(FWD, BACK, PRECISION, CBTYPE)                                  \
     if(data->node->inStride[0] == 1 && data->node->outStride[0] == 1)                              \
     {                                                                                              \
