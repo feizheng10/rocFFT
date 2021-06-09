@@ -193,7 +193,7 @@ bool PlanPowX(ExecPlan& execPlan)
                 gp.b_x   = (batch + kernel.batches_per_block - 1) / kernel.batches_per_block;
                 gp.tpb_x = kernel.threads_per_block;
 
-                lds = (execPlan.execSeq[i]->length[0] + lds_padding) * kernel.batches_per_block;
+                lds = execPlan.execSeq[i]->length[0] * kernel.batches_per_block;
             }
             else
             {
@@ -221,6 +221,7 @@ bool PlanPowX(ExecPlan& execPlan)
             gp.tpb_x = kernel.threads_per_block;
 
             lds = execPlan.execSeq[i]->length[0] * kernel.batches_per_block;
+            bwd = kernel.batches_per_block;
         }
         break;
         case CS_KERNEL_STOCKHAM_BLOCK_RC:
@@ -249,6 +250,8 @@ bool PlanPowX(ExecPlan& execPlan)
                                       execPlan.execSeq[i]->batch,
                                       std::multiplies<size_t>());
             gp.tpb_x = kernel.threads_per_block;
+            lds      = execPlan.execSeq[i]->length[0] * kernel.batches_per_block;
+            bwd      = kernel.batches_per_block;
         }
         break;
         case CS_KERNEL_STOCKHAM_TRANSPOSE_XY_Z:

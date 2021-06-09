@@ -603,7 +603,7 @@ class StockhamTilingCR(StockhamTiling):
         return stmts
 
     def store_to_global(self, length, params,
-                        stride=None, stride0=None, lengths=None, thread_id=None, buf=None, offset=None, lds=None,
+                        stride=None, stride0=None, lengths=None, thread_id=None, buf=None, offset=None, lds=None, lds_padding=None,
                         **kwargs):
 
         edge, tid0, tid1 = self.edge, self.tid0, self.tid1
@@ -615,7 +615,7 @@ class StockhamTilingCR(StockhamTiling):
 
         stmts = StatementList()
         offset_tile_rbuf = lambda i : i * lds_strip_h * stride[1] + tid1 * stride[1] + tid0 * stride0
-        offset_tile_wlds = lambda i : i * params.threads_per_block + tid1 * length + tid0
+        offset_tile_wlds = lambda i : i * params.threads_per_block + tid1 * B(length + lds_padding) + tid0
         offset_tile_wbuf = offset_tile_rbuf
         offset_tile_rlds = offset_tile_wlds
 
