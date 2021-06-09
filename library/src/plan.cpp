@@ -4702,10 +4702,8 @@ void TreeNode::assign_params_CS_3D_BLOCK_CR()
     childNodes[2]->inStride.push_back(1);
     childNodes[2]->iDist = childNodes[1]->oDist;
 
-    // FIXME: with the outStride
-    childNodes[2]->outStride.push_back(1);
-    childNodes[2]->outStride.push_back(childNodes[2]->length[0]);
-    childNodes[2]->oDist = oDist;
+    childNodes[2]->outStride = outStride;
+    childNodes[2]->oDist     = oDist;
 }
 
 void TreeNode::assign_params_CS_3D_RC_STRAIGHT()
