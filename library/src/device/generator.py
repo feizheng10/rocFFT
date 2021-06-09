@@ -273,6 +273,12 @@ class ArgumentList(BaseNode):
                 args.append(str(x))
         return cjoin(args)
 
+    def set_value(self, name, value):
+        for i, arg in enumerate(self.args):
+            if hasattr(arg, 'name'):
+                if arg.name == name:
+                    self.args[i] = value
+
     def callexpr(self):
         args = []
         for x in self.args:
@@ -319,27 +325,33 @@ class InlineDeclaration(BaseNode):
         return s
 
 
-@name_args(['name', 'type', 'size', 'value', 'shared'])
+@name_args(['name', 'type', 'size', 'value', 'shared', 'pointer', 'post_qualifier'])
 class Declaration(BaseNode):
     def __str__(self):
         s = ''
+        if self.size == 'dynamic':
+            s += 'extern '
         if self.shared:
             s += '__shared__ '
-        s += f'{self.type} {self.name}'
+        s += f'{self.type}'
+
+        if self.pointer:
+            s += f' *'
+
+        if self.post_qualifier is not None:
+            s += f' {self.post_qualifier}'
+
+        s += f' {self.name}'
+
         if self.size is not None:
-            s += f'[{self.size}]'
+            if self.size == 'dynamic':
+                s += f'[]'
+            else:
+                s += f'[{self.size}]'
         if self.value is not None:
             s += f' = {self.value}'
         s += ';'
         return s
-
-
-class CallbackDeclaration(BaseNode):
-    def __str__(self):
-        ret = 'auto load_cb = get_load_cb<scalar_type,cbtype>(load_cb_fn);'
-        ret += 'auto store_cb = get_store_cb<scalar_type,cbtype>(store_cb_fn);'
-        return ret
-
 
 def Declarations(*args):
     return [ x.declaration() for x in args ]
@@ -474,7 +486,7 @@ class StoreGlobal(BaseNode):
     def __str__(self):
         return f'store_cb({self.args[0]}, {self.args[1]}, {self.args[2]}, store_cb_data, nullptr);'
 
-    
+
 @make_binary('&&')
 class And(BaseNodeOps):
     pass
@@ -596,7 +608,7 @@ class ArrayElement(BaseNodeOps):
         return str(self.variable) + '[' + str(self.index) + ']'
 
 
-@name_args(['name', 'type', 'size', 'array', 'restrict', 'value', 'post_qualifier', 'shared'])
+@name_args(['name', 'type', 'size', 'array', 'restrict', 'value', 'post_qualifier', 'shared', 'pointer'])
 class Variable(BaseNodeOps):
 
     @property
@@ -612,8 +624,8 @@ class Variable(BaseNodeOps):
 
     def declaration(self):
         if self.size is not None:
-            return Declaration(self.name, self.type, size=self.size, value=self.value, shared=self.shared)
-        return Declaration(self.name, self.type, value=self.value, shared=self.shared)
+            return Declaration(self.name, self.type, size=self.size, value=self.value, shared=self.shared, pointer=self.pointer, post_qualifier=self.post_qualifier)
+        return Declaration(self.name, self.type, value=self.value, shared=self.shared, pointer=self.pointer, post_qualifier=self.post_qualifier)
 
     def inline(self, value):
         return InlineDeclaration(self.name, self.type, value)
@@ -624,6 +636,9 @@ class Variable(BaseNodeOps):
         if self.value is not None:
             return f'{self.type} {self.post_qualifier} {self.name} = {self.value}'
         return f'{self.type} {self.post_qualifier} {self.name}'
+
+    def inline(self, value):
+        return InlineDeclaration(self.name, self.type, value)
 
     def __str__(self):
         return str(self.name)
@@ -771,6 +786,9 @@ class Function(BaseNode):
 
     def instantiate(self, name, *targs):
         return Using(name, self.name + '<' + cjoin(*targs) + '>')
+
+    def call(self, arguments, templates=None):
+        return Call(name=self.name, arguments=arguments, templates=templates)
 
 
 @name_args(['name', 'arguments', 'templates', 'launch_params'])
@@ -967,19 +985,19 @@ def make_out_of_place(kernel, names):
         if isinstance(x, BaseAssign):
             lhs, rhs = x.lhs, x.rhs
 
-            # traverse rhs
-            if isinstance(rhs, ArrayElement):
-                if rhs.variable in names:
-                    nrhs = depth_first(rhs, input_visitor)
-                    nrhs.args[0] = rhs.variable + '_in'
-                    return Assign(lhs, nrhs)
-
             # on lhs, plain variable
             if isinstance(lhs, Variable):
                 if lhs.name in names:
                     return StatementList(
                         Assign(input_visitor(lhs), depth_first(rhs, input_visitor)),
                         Assign(output_visitor(lhs), depth_first(rhs, output_visitor)))
+
+            # traverse rhs
+            if isinstance(rhs, ArrayElement):
+                if rhs.variable in names:
+                    nrhs = depth_first(rhs, input_visitor)
+                    nrhs.args[0] = rhs.variable + '_in'
+                    return Assign(lhs, nrhs)
 
             # traverse lhs
             if isinstance(lhs, ArrayElement):

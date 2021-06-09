@@ -29,6 +29,7 @@
 
 #include "../../../shared/gpubuf.h"
 #include "../device/kernels/callback.h"
+#include "../device/kernels/common.h"
 #include "kargs.h"
 #include "rocfft_ostream.hpp"
 #include "twiddles.h"
@@ -100,12 +101,6 @@ enum ComputeScheme
     CS_KERNEL_3D_SINGLE
 };
 
-enum TransTileDir
-{
-    TTD_IP_HOR,
-    TTD_IP_VER,
-};
-
 class TreeNode
 {
 private:
@@ -157,6 +152,9 @@ public:
     // Direction of the transform (-1: forward, +1: inverse)
     int direction = -1;
 
+    // The number of padding at the end of each row in lds
+    unsigned int lds_padding = 0;
+
     // Data format parameters:
     rocfft_result_placement placement    = rocfft_placement_inplace;
     rocfft_precision        precision    = rocfft_precision_single;
@@ -172,6 +170,9 @@ public:
     // if false, always use 8 as the base (256*256*256....)
     bool largeTwd3Steps = false;
 
+    // embedded C2R/R2C pre/post processing
+    EmbeddedType ebtype = EmbeddedType::NONE;
+
     // Tree structure:
     // non-owning pointer to parent node, may be null
     TreeNode* parent = nullptr;
@@ -183,9 +184,6 @@ public:
     OperatingBuffer obIn = OB_UNINIT, obOut = OB_UNINIT;
 
     // FIXME: document
-    TransTileDir transTileDir = TTD_IP_HOR;
-
-    // FIXME: document
     size_t lengthBlue = 0;
 
     // Device pointers:
@@ -195,6 +193,10 @@ public:
 
     // callback parameters
     UserCallbacks callbacks;
+
+    // comments inserted by optimization passes to explain changes done
+    // to the node
+    std::vector<std::string> comments;
 
 public:
     // Disallow copy constructor:
@@ -220,13 +222,15 @@ public:
     // how many SBRC kernels can we put into a 3D transform?
     size_t count_3D_SBRC_nodes();
 
+    bool use_CS_3D_RC();
+
     //To determine fusing CS_KERNEL_STOCKHAM and following CS_KERNEL_TRANSPOSE_Z_XY
     bool use_CS_KERNEL_TRANSPOSE_Z_XY();
 
     // Real-complex and complex-real node builders:
     void build_real();
     void build_real_embed();
-    void build_real_even_1D();
+    void build_real_even_1D(bool fuse_pre_post_processing = true);
     void build_real_even_2D();
     void build_real_even_3D();
 
@@ -252,6 +256,11 @@ public:
     // transpose XY_Z when not possible.
     void build_CS_3D_BLOCK_RC();
     void build_CS_3D_BLOCK_CR();
+    // 3D 2 node builder, R: 2D FFTs, C: SBCC
+    // 2D FFTs could be 2D_SINGLE: results in one 2DFFT + one SBCC, or
+    //                  2D_RC: result in (one row FFT + one SBCC) + one SBCC, or
+    //                  2D_RTRT: ...
+    void build_CS_3D_RC();
 
     // State maintained while traversing the tree.
     //

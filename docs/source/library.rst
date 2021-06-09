@@ -244,6 +244,13 @@ There are two main types of FFTs in the library:
   * Real data being subject to forward FFT that results in complex data (Hermitian).
   * Complex data (Hermitian) being subject to backward FFT that results in real data.
 
+.. note::
+
+   Real backward FFTs require that the input data be
+   Hermitian-symmetric, as would naturally happen in the output of a
+   real forward FFT.  rocFFT will produce undefined results if
+   this requirement is not met.
+
 The library provides the :cpp:enum:`rocfft_transform_type` and
 :cpp:enum:`rocfft_array_type` enums to specify transform and array
 types, respectively.
@@ -259,6 +266,16 @@ is ready to send data to the device for compute, it should be sent in as few API
 rocFFT plans have a parameter `number_of_transforms` (this value is also referred to as batch size in various places in the document)
 in :cpp:func:`rocfft_plan_create` to describe the number of transforms being requested. All 1D, 2D, and 3D transforms can be batched.
 
+.. _resultplacement:
+
+Result placement
+----------------
+
+The API supports both in-place and not in-place transforms via the :cpp:enum:`rocfft_result_placement` enum.  With in-place transforms, only input buffers are provided to the
+execution API, and the resulting data is written to the same buffer, overwriting the input data.  With not in-place transforms, distinct
+output buffers are provided, and the results are written into the output buffer.
+
+Note that rocFFT may still modify the input buffer even if a transform is requested to be not in-place.  Real-complex transforms in particular are more efficient if they can modify the original input.
 
 Strides and Distances
 ---------------------
@@ -281,15 +298,27 @@ FFT instance is not overlapping with any other; if not valid, undefined results 
 array of 4096 rows x 1024 columns stored in a row-major manner, on which you want to perform a 1D length 4096 transform on each column.) In this case, specify the
 strides as [1024] and distance as 1.
 
-Result placement
-----------------
+Overwriting non-contiguous buffers
+==================================
 
-The API supports both in-place and not in-place transforms via the :cpp:enum:`rocfft_result_placement` enum.  With in-place transforms, only input buffers are provided to the
-execution API, and the resulting data is written to the same buffer, overwriting the input data.  With not in-place transforms, distinct
-output buffers are provided, and the results are written into the output buffer.
+rocFFT guarantees that both the reading of FFT input and the writing of FFT output will respect the
+specified strides.  However, temporary results can potentially be written to these buffers
+contiguously, which may be unexpected if the strides would avoid certain memory locations completely
+for reading and writing.
 
-Note that rocFFT may still modify the input buffer even if a transform is requested to be not in-place.  Real-complex transforms in particular are more efficient if they can modify the original input.
+For example, a 1D FFT of length :math:`N` with input and output stride of 2 is transforming only
+even-indexed elements in the input and output buffers.  But if temporary data needs to be written to
+the buffers, odd-indexed elements may be overwritten.
 
+However, rocFFT is guaranteed to respect the size of buffers.  In the above example, the
+input/output buffers are :math:`2N` elements long, even if only :math:`N` even-indexed
+elements are being transformed.  No more than :math:`2N` elements of temporary data will be written
+to the buffers during the transform.
+
+These policies apply to both input and output buffers, because :ref:`not in-place transforms may overwrite input data<resultplacement>`.
+
+Transforms of real data
+-----------------------
 
 .. toctree::
    :maxdepth: 2

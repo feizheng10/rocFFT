@@ -866,10 +866,9 @@ void TreeNode::RecursiveBuildTree()
 
     case 3:
     {
-        if(count_3D_SBRC_nodes() == 3 && is_cube_size(length))
+        if(use_CS_3D_RC())
         {
-            // Optimal case for SBRC 3D
-            scheme = CS_3D_BLOCK_RC;
+            scheme = CS_3D_RC;
         }
         else if(MultiDimFuseKernelsAvailable)
         {
@@ -883,22 +882,28 @@ void TreeNode::RecursiveBuildTree()
         }
         else
         {
-            scheme = CS_3D_RTRT;
+            // if we can get down to 3 or 4 kernels via SBRC, prefer that
+            if(use_CS_3D_BLOCK_RC())
+                scheme = CS_3D_BLOCK_RC;
+            else
+                scheme = CS_3D_RTRT;
 
-            // NB:
-            // Try to build the 1st child but not really add it in. Switch to
-            // CS_3D_TRTRTR if the 1st child is CS_2D_RTRT.(Any better idea?)
-            auto child0       = TreeNode::CreateNode(this);
-            child0->length    = length;
-            child0->dimension = 2;
-            child0->RecursiveBuildTree();
-            if(child0->scheme == CS_2D_RTRT)
+            if(scheme == CS_3D_RTRT)
             {
-                // if we can get down to 3 or 4 kernels via SBRC, prefer that
-                if(use_CS_3D_BLOCK_RC())
-                    scheme = CS_3D_BLOCK_RC;
-                else
+                // NB:
+                // Peek the 1st child but not really add it in.
+                // Give up if 1st child is 2D_RTRT (means the poor RTRT_TRT)
+                // Switch to TRTRTR as the last resort.
+                auto child0       = TreeNode::CreateNode(this);
+                child0->length    = length;
+                child0->dimension = 2;
+                child0->RecursiveBuildTree();
+                if(child0->scheme == CS_2D_RTRT)
+                {
                     scheme = CS_3D_TRTRTR;
+                }
+                // if we are here, the 2D sheme is either
+                // 2D_SINGLE+TRT or 2D_RC+TRT
             }
         }
 
@@ -926,37 +931,7 @@ void TreeNode::RecursiveBuildTree()
         break;
         case CS_3D_RC:
         {
-            // 2d fft
-            auto xyPlan = TreeNode::CreateNode(this);
-
-            xyPlan->length.push_back(length[0]);
-            xyPlan->length.push_back(length[1]);
-            xyPlan->dimension = 2;
-            xyPlan->length.push_back(length[2]);
-
-            for(size_t index = 3; index < length.size(); index++)
-            {
-                xyPlan->length.push_back(length[index]);
-            }
-
-            xyPlan->RecursiveBuildTree();
-            childNodes.emplace_back(std::move(xyPlan));
-
-            // z col fft
-            auto zPlan = TreeNode::CreateNode(this);
-
-            zPlan->length.push_back(length[2]);
-            zPlan->dimension = 1;
-            zPlan->length.push_back(length[0]);
-            zPlan->length.push_back(length[1]);
-
-            for(size_t index = 3; index < length.size(); index++)
-            {
-                zPlan->length.push_back(length[index]);
-            }
-
-            zPlan->scheme = CS_KERNEL_3D_STOCKHAM_BLOCK_CC;
-            childNodes.emplace_back(std::move(zPlan));
+            build_CS_3D_RC();
         }
         break;
         case CS_KERNEL_3D_SINGLE:
@@ -973,6 +948,67 @@ void TreeNode::RecursiveBuildTree()
     default:
         assert(false);
     }
+}
+
+// check if we have an SBCC kernel along the specified dimension
+static bool SBCC_dim_available(const std::vector<size_t>& length,
+                               size_t                     sbcc_dim,
+                               rocfft_precision           precision)
+{
+    // Check the C part.
+    // The first R is built recursively with 2D_FFT, leave the check part to themselves
+    size_t numTrans = 0;
+    // do we have a purpose-built sbcc kernel
+    bool have_sbcc = false;
+    try
+    {
+        numTrans = function_pool::get_kernel(
+                       fpkey(length[sbcc_dim], precision, CS_KERNEL_STOCKHAM_BLOCK_CC))
+                       .batches_per_block;
+        have_sbcc = true;
+    }
+    catch(std::out_of_range&)
+    {
+        try
+        {
+            numTrans
+                = function_pool::get_kernel(fpkey(length[sbcc_dim], precision)).batches_per_block;
+        }
+        catch(std::out_of_range&)
+        {
+            return false;
+        }
+    }
+    // if we have a size for this transform but numTrans, this must
+    // be an old-generator kernel
+    if(!numTrans)
+    {
+        size_t wgs = 0;
+        DetermineSizes(length[sbcc_dim], wgs, numTrans);
+    }
+
+    // x-dim should be >= the blockwidth, or it might perform worse..
+    if(length[0] < numTrans)
+        return false;
+
+    // for regular stockham kernels, ensure we are doing enough rows
+    // to coalesce properly. 4 seems to be enough for
+    // double-precision, whereas some sizes that do 7 rows seem to be
+    // slower for single.
+    if(!have_sbcc)
+    {
+        size_t minRows = precision == rocfft_precision_single ? 8 : 4;
+        if(numTrans < minRows)
+            return false;
+    }
+
+    return true;
+}
+
+// do we have an SBCC kernel for this specific size?
+static bool have_SBCC_kernel(size_t length, rocfft_precision precision)
+{
+    return function_pool::has_function(fpkey(length, precision, CS_KERNEL_STOCKHAM_BLOCK_CC));
 }
 
 bool TreeNode::use_CS_2D_SINGLE()
@@ -1019,10 +1055,8 @@ bool TreeNode::use_CS_2D_RC()
     //   on upper bound for 2D SBCC cases, and even should not limit to pow
     //   of 2.
 
-    // FIXME: use all SBCC kernels instead after we fix the bugs in buffer assignment
-    // std::set<int> sbcc_support = {50, 64, 81, 100, 128, 200, 256};
-    std::set<int> sbcc_support = {64, 128, 256};
-    if((sbcc_support.find(length[1]) != sbcc_support.end()) && (length[0] >= 64))
+    std::set<int> sbcc_support = {50, 64, 81, 100, 128, 200, 256, 336};
+    if((sbcc_support.find(length[1]) != sbcc_support.end()) && (length[0] >= 56))
     {
         return true;
     }
@@ -1037,9 +1071,6 @@ size_t TreeNode::count_3D_SBRC_nodes()
     {
         if(function_pool::has_function(fpkey(length[i], precision, CS_KERNEL_STOCKHAM_BLOCK_RC)))
         {
-            if(is_diagonal_sbrc_3D_length(length[i]) && !is_cube_size(length))
-                continue;
-
             // make sure the SBRC kernel on that dimension would be tile-aligned
             size_t bwd, wgs, lds;
             GetBlockComputeTable(length[i], bwd, wgs, lds);
@@ -1052,7 +1083,60 @@ size_t TreeNode::count_3D_SBRC_nodes()
 
 bool TreeNode::use_CS_3D_BLOCK_RC()
 {
+    // TODO: SBRC hasn't worked for inner batch (i/oDist == 1)
+    if(iDist == 1 || oDist == 1)
+        return false;
+
     return count_3D_SBRC_nodes() >= 2;
+}
+
+bool TreeNode::use_CS_3D_RC()
+{
+    // TODO: SBCC hasn't worked for inner batch (i/oDist == 1)
+    if(iDist == 1 || oDist == 1)
+        return false;
+
+    try
+    {
+        // Check the C part.
+        // The first R is built recursively with 2D_FFT, leave the check part to themselves
+        auto krn
+            = function_pool::get_kernel(fpkey(length[2], precision, CS_KERNEL_STOCKHAM_BLOCK_CC));
+
+        // hack for this special case
+        // this size is rejected by the following conservative threshold (#-elems)
+        // however it can use 3D_RC and get much better performance
+        std::vector<size_t> special_case{56, 336, 336};
+        if(length == special_case && precision == rocfft_precision_double)
+            return true;
+
+        // x-dim should be >= the blockwidth, or it might perform worse..
+        if(length[0] < krn.batches_per_block)
+            return false;
+        // we don't want a too-large 3D block, sbcc along z-dim might be bad
+        if((length[0] * length[1] * length[2]) >= (128 * 128 * 128))
+            return false;
+
+        // Peek the first child
+        // Give up if 1st child is 2D_RTRT (means the poor RTRT_C),
+        auto child0       = TreeNode::CreateNode(this);
+        child0->length    = length;
+        child0->dimension = 2;
+        child0->RecursiveBuildTree();
+        if(child0->scheme == CS_2D_RTRT)
+            return false;
+
+        // if we are here, the 2D sheme is either
+        // 2D_SINGLE+CC (2 kernels) or 2D_RC+CC (3 kernels),
+        assert(child0->scheme == CS_KERNEL_2D_SINGLE || child0->scheme == CS_2D_RC);
+        return true;
+    }
+    catch(...)
+    {
+        return false;
+    }
+
+    return false;
 }
 
 bool TreeNode::use_CS_KERNEL_TRANSPOSE_Z_XY()
@@ -1131,7 +1215,7 @@ void TreeNode::build_real_embed()
     childNodes.emplace_back(std::move(copyTailPlan));
 }
 
-void TreeNode::build_real_even_1D()
+void TreeNode::build_real_even_1D(bool fuse_pre_post_processing)
 {
     // Fastest moving dimension must be even:
     assert(length[0] % 2 == 0);
@@ -1144,6 +1228,24 @@ void TreeNode::build_real_even_1D()
     cfftPlan->length[0] = cfftPlan->length[0] / 2;
 
     cfftPlan->placement = rocfft_placement_inplace;
+
+    // cfftPlan works in-place on the input buffer for R2C, on the
+    // output buffer for C2R
+
+    // NB: the buffer is real, but we treat it as complex
+    cfftPlan->RecursiveBuildTree();
+
+    // fuse pre/post-processing into fft if it's single-kernel
+    // and generated with new generator
+
+    // NOTE: get_kernel won't throw because we would only have a
+    // single kernel if it's in the function map.  We're also relying
+    // on the fact that old-generator would not populate factors.
+    bool singleKernelFFT
+        = cfftPlan->childNodes.empty()
+          && !function_pool::get_kernel(fpkey(cfftPlan->length.front(), precision)).factors.empty();
+    if(!singleKernelFFT)
+        fuse_pre_post_processing = false;
 
     switch(direction)
     {
@@ -1161,35 +1263,42 @@ void TreeNode::build_real_even_1D()
         applyCallback->placement = rocfft_placement_inplace;
         childNodes.emplace_back(std::move(applyCallback));
 
-        // cfftPlan works in-place on the input buffer.
-        // NB: the input buffer is real, but we treat it as complex
-        cfftPlan->RecursiveBuildTree();
+        if(fuse_pre_post_processing)
+            cfftPlan->ebtype = EmbeddedType::Real2C_POST;
+
         childNodes.emplace_back(std::move(cfftPlan));
 
-        auto postPlan       = TreeNode::CreateNode(this);
-        postPlan->scheme    = CS_KERNEL_R_TO_CMPLX;
-        postPlan->dimension = 1;
-        postPlan->length    = length;
-        postPlan->length[0] /= 2;
+        // add separate post-processing if we couldn't fuse
+        if(!fuse_pre_post_processing)
+        {
+            auto postPlan       = TreeNode::CreateNode(this);
+            postPlan->scheme    = CS_KERNEL_R_TO_CMPLX;
+            postPlan->dimension = 1;
+            postPlan->length    = length;
+            postPlan->length[0] /= 2;
 
-        childNodes.emplace_back(std::move(postPlan));
+            childNodes.emplace_back(std::move(postPlan));
+        }
         break;
     }
     case 1:
     {
         // complex-to-real transform: pre-process followed by in-place complex transform
 
-        auto prePlan       = TreeNode::CreateNode(this);
-        prePlan->scheme    = CS_KERNEL_CMPLX_TO_R;
-        prePlan->dimension = 1;
-        prePlan->length    = length;
-        prePlan->length[0] /= 2;
+        if(fuse_pre_post_processing)
+            cfftPlan->ebtype = EmbeddedType::C2Real_PRE;
+        else
+        {
+            // add separate pre-processing if we couldn't fuse
+            auto prePlan       = TreeNode::CreateNode(this);
+            prePlan->scheme    = CS_KERNEL_CMPLX_TO_R;
+            prePlan->dimension = 1;
+            prePlan->length    = length;
+            prePlan->length[0] /= 2;
 
-        childNodes.emplace_back(std::move(prePlan));
+            childNodes.emplace_back(std::move(prePlan));
+        }
 
-        // cfftPlan works in-place on the output buffer.
-        // NB: the output buffer is real, but we treat it as complex
-        cfftPlan->RecursiveBuildTree();
         childNodes.emplace_back(std::move(cfftPlan));
 
         // insert a node that's prepared to apply the user's
@@ -1348,115 +1457,171 @@ void TreeNode::build_real_even_3D()
 
     scheme = CS_REAL_3D_EVEN;
 
+    // if we have SBCC kernels for the other two dimensions, transform them using SBCC and avoid transposes.
+    bool sbcc_inplace
+        = SBCC_dim_available(length, 1, precision) && SBCC_dim_available(length, 2, precision);
+    // ensure the fastest dimensions are big enough to get enough
+    // column tiles to perform well
+    if(length[0] <= 52 || length[1] <= 52)
+        sbcc_inplace = false;
+    // also exclude particular problematic sizes for higher dims
+    if(length[1] == 168 || length[2] == 168)
+        sbcc_inplace = false;
+    // if all 3 lengths are SBRC-able, then R2C will already be 3
+    // kernel.  SBRC should be slightly better since row accesses
+    // should be a bit nicer in general than column accesses.
+    if(function_pool::has_function(fpkey(length[0] / 2, precision, CS_KERNEL_STOCKHAM_BLOCK_RC))
+       && function_pool::has_function(fpkey(length[1], precision, CS_KERNEL_STOCKHAM_BLOCK_RC))
+       && function_pool::has_function(fpkey(length[2], precision, CS_KERNEL_STOCKHAM_BLOCK_RC)))
+    {
+        sbcc_inplace = false;
+    }
+    auto add_sbcc_children = [this](const std::vector<size_t>& remainingLength) {
+        // SBCC along Z dimension
+        auto sbccZ    = TreeNode::CreateNode(this);
+        sbccZ->length = remainingLength;
+        std::swap(sbccZ->length[1], sbccZ->length[2]);
+        std::swap(sbccZ->length[0], sbccZ->length[1]);
+        sbccZ->scheme = have_SBCC_kernel(sbccZ->length[0], precision) ? CS_KERNEL_STOCKHAM_BLOCK_CC
+                                                                      : CS_KERNEL_STOCKHAM;
+        childNodes.emplace_back(std::move(sbccZ));
+
+        // SBCC along Y dimension
+        auto sbccY    = TreeNode::CreateNode(this);
+        sbccY->length = remainingLength;
+        std::swap(sbccY->length[0], sbccY->length[1]);
+        sbccY->scheme = have_SBCC_kernel(sbccY->length[0], precision) ? CS_KERNEL_STOCKHAM_BLOCK_CC
+                                                                      : CS_KERNEL_STOCKHAM;
+        childNodes.emplace_back(std::move(sbccY));
+    };
+
+    std::vector<size_t> remainingLength = {length[0] / 2 + 1, length[1], length[2]};
     if(inArrayType == rocfft_array_type_real) // forward
     {
-        // first row fft
+        // first row fft + postproc is mandatory for fastest dimension
         {
             auto rcplan       = TreeNode::CreateNode(this);
             rcplan->length    = length;
             rcplan->dimension = 1;
-            rcplan->build_real_even_1D();
+            rcplan->build_real_even_1D(sbcc_inplace);
             childNodes.emplace_back(std::move(rcplan));
         }
 
-        // first transpose
+        // if we have SBCC kernels for the other two dimensions, transform them using SBCC and avoid transposes
+        if(sbcc_inplace)
         {
-            auto trans1plan       = TreeNode::CreateNode(this);
-            trans1plan->length    = {length[0] / 2 + 1, length[1], length[2]};
-            trans1plan->scheme    = CS_KERNEL_TRANSPOSE_Z_XY;
-            trans1plan->dimension = 2;
-            childNodes.emplace_back(std::move(trans1plan));
+            add_sbcc_children(remainingLength);
         }
-
+        // otherwise, handle remaining dimensions with TRTRT
+        else
         {
-            auto c1plan       = TreeNode::CreateNode(this);
-            c1plan->length    = {childNodes[childNodes.size() - 1]->length[1],
-                              childNodes[childNodes.size() - 1]->length[2],
-                              childNodes[childNodes.size() - 1]->length[0]};
-            c1plan->dimension = 1;
-            c1plan->placement = rocfft_placement_inplace;
-            c1plan->RecursiveBuildTree();
-            childNodes.emplace_back(std::move(c1plan));
-        }
+            // first transpose
+            {
+                auto trans1plan       = TreeNode::CreateNode(this);
+                trans1plan->length    = remainingLength;
+                trans1plan->scheme    = CS_KERNEL_TRANSPOSE_Z_XY;
+                trans1plan->dimension = 2;
+                childNodes.emplace_back(std::move(trans1plan));
+            }
 
-        // second transpose
-        {
-            auto trans2plan       = TreeNode::CreateNode(this);
-            trans2plan->length    = childNodes[childNodes.size() - 1]->length;
-            trans2plan->scheme    = CS_KERNEL_TRANSPOSE_Z_XY;
-            trans2plan->dimension = 2;
-            childNodes.emplace_back(std::move(trans2plan));
-        }
+            {
+                auto c1plan       = TreeNode::CreateNode(this);
+                c1plan->length    = {childNodes[childNodes.size() - 1]->length[1],
+                                  childNodes[childNodes.size() - 1]->length[2],
+                                  childNodes[childNodes.size() - 1]->length[0]};
+                c1plan->dimension = 1;
+                c1plan->placement = rocfft_placement_inplace;
+                c1plan->RecursiveBuildTree();
+                childNodes.emplace_back(std::move(c1plan));
+            }
 
-        {
-            auto c2plan       = TreeNode::CreateNode(this);
-            c2plan->length    = {childNodes[childNodes.size() - 1]->length[1],
-                              childNodes[childNodes.size() - 1]->length[2],
-                              childNodes[childNodes.size() - 1]->length[0]};
-            c2plan->dimension = 1;
-            c2plan->placement = rocfft_placement_inplace;
-            c2plan->RecursiveBuildTree();
-            childNodes.emplace_back(std::move(c2plan));
-        }
+            // second transpose
+            {
+                auto trans2plan       = TreeNode::CreateNode(this);
+                trans2plan->length    = childNodes[childNodes.size() - 1]->length;
+                trans2plan->scheme    = CS_KERNEL_TRANSPOSE_Z_XY;
+                trans2plan->dimension = 2;
+                childNodes.emplace_back(std::move(trans2plan));
+            }
 
-        // third transpose
-        {
-            auto trans3       = TreeNode::CreateNode(this);
-            trans3->length    = childNodes[childNodes.size() - 1]->length;
-            trans3->scheme    = CS_KERNEL_TRANSPOSE_Z_XY;
-            trans3->dimension = 2;
-            childNodes.emplace_back(std::move(trans3));
+            {
+                auto c2plan       = TreeNode::CreateNode(this);
+                c2plan->length    = {childNodes[childNodes.size() - 1]->length[1],
+                                  childNodes[childNodes.size() - 1]->length[2],
+                                  childNodes[childNodes.size() - 1]->length[0]};
+                c2plan->dimension = 1;
+                c2plan->placement = rocfft_placement_inplace;
+                c2plan->RecursiveBuildTree();
+                childNodes.emplace_back(std::move(c2plan));
+            }
+
+            // third transpose
+            {
+                auto trans3       = TreeNode::CreateNode(this);
+                trans3->length    = childNodes[childNodes.size() - 1]->length;
+                trans3->scheme    = CS_KERNEL_TRANSPOSE_Z_XY;
+                trans3->dimension = 2;
+                childNodes.emplace_back(std::move(trans3));
+            }
         }
     }
     else
     {
-        // transpose
+        if(sbcc_inplace)
         {
-            auto trans3       = TreeNode::CreateNode(this);
-            trans3->length    = {length[0] / 2 + 1, length[1], length[2]};
-            trans3->scheme    = CS_KERNEL_TRANSPOSE_XY_Z;
-            trans3->dimension = 2;
-            childNodes.emplace_back(std::move(trans3));
+            add_sbcc_children(remainingLength);
         }
-
+        // otherwise, TRTRTR
+        else
         {
-            auto c2plan       = TreeNode::CreateNode(this);
-            c2plan->length    = {childNodes[childNodes.size() - 1]->length[2],
-                              childNodes[childNodes.size() - 1]->length[0],
-                              childNodes[childNodes.size() - 1]->length[1]};
-            c2plan->dimension = 1;
-            c2plan->placement = rocfft_placement_inplace;
-            c2plan->RecursiveBuildTree();
-            childNodes.emplace_back(std::move(c2plan));
-        }
+            // transpose
+            {
+                auto trans3       = TreeNode::CreateNode(this);
+                trans3->length    = remainingLength;
+                trans3->scheme    = CS_KERNEL_TRANSPOSE_XY_Z;
+                trans3->dimension = 2;
+                childNodes.emplace_back(std::move(trans3));
+            }
 
-        // transpose
-        {
-            auto trans2       = TreeNode::CreateNode(this);
-            trans2->length    = childNodes[childNodes.size() - 1]->length;
-            trans2->scheme    = CS_KERNEL_TRANSPOSE_XY_Z;
-            trans2->dimension = 2;
-            childNodes.emplace_back(std::move(trans2));
-        }
+            {
+                auto c2plan       = TreeNode::CreateNode(this);
+                c2plan->length    = {childNodes[childNodes.size() - 1]->length[2],
+                                  childNodes[childNodes.size() - 1]->length[0],
+                                  childNodes[childNodes.size() - 1]->length[1]};
+                c2plan->dimension = 1;
+                c2plan->placement = rocfft_placement_inplace;
+                c2plan->RecursiveBuildTree();
+                childNodes.emplace_back(std::move(c2plan));
+            }
 
-        {
-            auto c1plan       = TreeNode::CreateNode(this);
-            c1plan->length    = {childNodes[childNodes.size() - 1]->length[2],
-                              childNodes[childNodes.size() - 1]->length[0],
-                              childNodes[childNodes.size() - 1]->length[1]};
-            c1plan->dimension = 1;
-            c1plan->placement = rocfft_placement_inplace;
-            c1plan->RecursiveBuildTree();
-            childNodes.emplace_back(std::move(c1plan));
-        }
+            // transpose
+            {
+                auto trans2       = TreeNode::CreateNode(this);
+                trans2->length    = childNodes[childNodes.size() - 1]->length;
+                trans2->scheme    = CS_KERNEL_TRANSPOSE_XY_Z;
+                trans2->dimension = 2;
+                childNodes.emplace_back(std::move(trans2));
+            }
 
-        // transpose
-        {
-            auto trans1       = TreeNode::CreateNode(this);
-            trans1->length    = childNodes[childNodes.size() - 1]->length;
-            trans1->scheme    = CS_KERNEL_TRANSPOSE_XY_Z;
-            trans1->dimension = 2;
-            childNodes.emplace_back(std::move(trans1));
+            {
+                auto c1plan       = TreeNode::CreateNode(this);
+                c1plan->length    = {childNodes[childNodes.size() - 1]->length[2],
+                                  childNodes[childNodes.size() - 1]->length[0],
+                                  childNodes[childNodes.size() - 1]->length[1]};
+                c1plan->dimension = 1;
+                c1plan->placement = rocfft_placement_inplace;
+                c1plan->RecursiveBuildTree();
+                childNodes.emplace_back(std::move(c1plan));
+            }
+
+            // transpose
+            {
+                auto trans1       = TreeNode::CreateNode(this);
+                trans1->length    = childNodes[childNodes.size() - 1]->length;
+                trans1->scheme    = CS_KERNEL_TRANSPOSE_XY_Z;
+                trans1->dimension = 2;
+                childNodes.emplace_back(std::move(trans1));
+            }
         }
 
         // c2r
@@ -1464,7 +1629,7 @@ void TreeNode::build_real_even_3D()
             auto crplan       = TreeNode::CreateNode(this);
             crplan->length    = length;
             crplan->dimension = 1;
-            crplan->build_real_even_1D();
+            crplan->build_real_even_1D(sbcc_inplace);
             childNodes.emplace_back(std::move(crplan));
         }
     }
@@ -1504,6 +1669,7 @@ void TreeNode::build_1D()
         return;
     }
 
+    // single: limit up to 4096, double: up to 2048
     if(length[0] <= Large1DThreshold(precision)
        && function_pool::has_function(fpkey(length[0], precision)))
     {
@@ -1542,7 +1708,9 @@ void TreeNode::build_1D()
                     failed = true;
                 }
             }
-            scheme = (length[0] <= 65536 / PrecisionWidth(precision)) ? CS_L1D_CC : CS_L1D_CRT;
+            // up to 256cc + 256rc for the 1arge-1D, use CRT for even larger
+            scheme = (length[0] <= 65536) ? CS_L1D_CC : CS_L1D_CRT;
+            // scheme = (length[0] <= 65536 / PrecisionWidth(precision)) ? CS_L1D_CC : CS_L1D_CRT;
         }
         else
         {
@@ -2125,11 +2293,7 @@ void TreeNode::build_CS_3D_BLOCK_RC()
         {
             size_t bwd, wgs, lds;
             GetBlockComputeTable(cur_length[0], bwd, wgs, lds);
-            if(cur_length[1] * cur_length[2] % bwd != 0)
-                have_sbrc = false;
-
-            // require cube size for diagonal transpose
-            if(is_diagonal_sbrc_3D_length(cur_length.front()) && !is_cube_size(cur_length))
+            if(cur_length[2] % bwd != 0)
                 have_sbrc = false;
         }
         if(have_sbrc)
@@ -2191,6 +2355,44 @@ void TreeNode::build_CS_3D_BLOCK_CR()
         std::swap(cur_length[1], cur_length[2]);
         std::swap(cur_length[2], cur_length[0]);
     }
+}
+
+void TreeNode::build_CS_3D_RC()
+{
+    // 2d fft
+    auto xyPlan = TreeNode::CreateNode(this);
+
+    xyPlan->length.push_back(length[0]);
+    xyPlan->length.push_back(length[1]);
+    xyPlan->dimension = 2;
+    xyPlan->length.push_back(length[2]);
+
+    for(size_t index = 3; index < length.size(); index++)
+    {
+        xyPlan->length.push_back(length[index]);
+    }
+
+    xyPlan->RecursiveBuildTree();
+    childNodes.emplace_back(std::move(xyPlan));
+
+    // z col fft
+    auto zPlan = TreeNode::CreateNode(this);
+
+    // make this always inplace, and let the previous one follow the root's placement
+    zPlan->placement = rocfft_placement_inplace;
+    zPlan->length.push_back(length[2]);
+    zPlan->dimension = 1;
+    zPlan->length.push_back(length[0]);
+    zPlan->length.push_back(length[1]);
+
+    for(size_t index = 3; index < length.size(); index++)
+    {
+        zPlan->length.push_back(length[index]);
+    }
+
+    // zPlan->scheme = CS_KERNEL_3D_STOCKHAM_BLOCK_CC;
+    zPlan->scheme = CS_KERNEL_STOCKHAM_BLOCK_CC;
+    childNodes.emplace_back(std::move(zPlan));
 }
 
 struct TreeNode::TraverseState
@@ -2403,7 +2605,7 @@ void TreeNode::assign_buffers_CS_REAL_TRANSFORM_USING_CMPLX(TraverseState&   sta
     assert((direction == -1 && childNodes[0]->scheme == CS_KERNEL_COPY_R_TO_CMPLX)
            || (direction == 1 && childNodes[0]->scheme == CS_KERNEL_COPY_HERM_TO_CMPLX));
 
-    obOut = placement == rocfft_placement_inplace ? OB_USER_IN : OB_USER_OUT;
+    obOut = OB_USER_OUT;
 
     assert((direction == -1 && childNodes[0]->scheme == CS_KERNEL_COPY_R_TO_CMPLX)
            || (direction == 1 && childNodes[0]->scheme == CS_KERNEL_COPY_HERM_TO_CMPLX));
@@ -2446,9 +2648,15 @@ void TreeNode::assign_buffers_CS_REAL_TRANSFORM_EVEN(TraverseState&   state,
                                                      OperatingBuffer& flipOut,
                                                      OperatingBuffer& obOutBuf)
 {
+    auto flipIn0  = flipIn;
+    auto flipOut0 = flipOut;
+
     if(direction == -1)
     {
         // real-to-complex
+
+        flipIn  = obIn;
+        flipOut = OB_TEMP;
 
         // apply callback
         childNodes[0]->SetInputBuffer(state);
@@ -2456,54 +2664,71 @@ void TreeNode::assign_buffers_CS_REAL_TRANSFORM_EVEN(TraverseState&   state,
         childNodes[0]->inArrayType  = rocfft_array_type_real;
         childNodes[0]->outArrayType = rocfft_array_type_real;
 
+        // we would have only 2 child nodes if we're able to fuse the
+        // post-processing into the single FFT kernel
+        bool fusedPostProcessing = childNodes[1]->ebtype == EmbeddedType::Real2C_POST;
+
         // complex FFT kernel
         childNodes[1]->SetInputBuffer(state);
-        childNodes[1]->obOut        = obIn;
-        childNodes[1]->inArrayType  = rocfft_array_type_complex_interleaved;
-        childNodes[1]->outArrayType = rocfft_array_type_complex_interleaved;
-        flipIn                      = obIn;
-        obOutBuf                    = obIn;
+        childNodes[1]->obOut       = fusedPostProcessing ? obOut : obIn;
+        childNodes[1]->inArrayType = rocfft_array_type_complex_interleaved;
+        childNodes[1]->outArrayType
+            = fusedPostProcessing ? outArrayType : rocfft_array_type_complex_interleaved;
         childNodes[1]->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
 
-        // real-to-complex post kernel
-        childNodes[2]->SetInputBuffer(state);
-        childNodes[2]->obOut        = obOut;
-        childNodes[2]->inArrayType  = rocfft_array_type_complex_interleaved;
-        childNodes[2]->outArrayType = outArrayType;
+        if(!fusedPostProcessing)
+        {
+            // real-to-complex post kernel
+            childNodes[2]->SetInputBuffer(state);
+            childNodes[2]->obOut        = obOut;
+            childNodes[2]->inArrayType  = rocfft_array_type_complex_interleaved;
+            childNodes[2]->outArrayType = outArrayType;
+        }
+
+        flipIn  = flipIn0;
+        flipOut = flipOut0;
     }
     else
     {
-        // complex-to-real
+        // we would only have 2 child nodes if we fused the
+        // pre-processing into the single FFT kernel
+        bool fusedPreProcessing = childNodes[0]->ebtype == EmbeddedType::C2Real_PRE;
 
-        // complex-to-real pre kernel
-        childNodes[0]->SetInputBuffer(state);
-        childNodes[0]->obOut = obOut;
+        auto& fftNode = fusedPreProcessing ? childNodes[0] : childNodes[1];
 
-        childNodes[0]->inArrayType  = inArrayType;
-        childNodes[0]->outArrayType = rocfft_array_type_complex_interleaved;
-
-        // NB: The case here indicates parent's input buffer is not
-        //     complex_planar or hermitian_planar, so the child must
-        //     be a hermitian_interleaved.
-        if(inArrayType == rocfft_array_type_complex_interleaved)
+        if(!fusedPreProcessing)
         {
-            childNodes[0]->inArrayType = rocfft_array_type_hermitian_interleaved;
+            // complex-to-real
+
+            // complex-to-real pre kernel
+            childNodes[0]->SetInputBuffer(state);
+            childNodes[0]->obOut = obOut;
+
+            childNodes[0]->inArrayType  = inArrayType;
+            childNodes[0]->outArrayType = rocfft_array_type_complex_interleaved;
+
+            // NB: The case here indicates parent's input buffer is not
+            //     complex_planar or hermitian_planar, so the child must
+            //     be a hermitian_interleaved.
+            if(inArrayType == rocfft_array_type_complex_interleaved)
+            {
+                childNodes[0]->inArrayType = rocfft_array_type_hermitian_interleaved;
+            }
         }
 
         // complex FFT kernel
-        childNodes[1]->SetInputBuffer(state);
-        childNodes[1]->obOut = obOut;
-        flipIn               = placement == rocfft_placement_inplace ? OB_USER_IN : OB_USER_OUT;
-        flipOut              = OB_TEMP;
-        childNodes[1]->inArrayType  = rocfft_array_type_complex_interleaved;
-        childNodes[1]->outArrayType = rocfft_array_type_complex_interleaved;
-        childNodes[1]->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
+        fftNode->SetInputBuffer(state);
+        fftNode->obOut = obOut;
+        fftNode->inArrayType
+            = fusedPreProcessing ? inArrayType : rocfft_array_type_complex_interleaved;
+        fftNode->outArrayType = rocfft_array_type_complex_interleaved;
+        fftNode->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
 
         // apply callback
-        childNodes[2]->obIn         = obOut;
-        childNodes[2]->obOut        = obOut;
-        childNodes[2]->inArrayType  = rocfft_array_type_real;
-        childNodes[2]->outArrayType = rocfft_array_type_real;
+        childNodes.back()->obIn         = obOut;
+        childNodes.back()->obOut        = obOut;
+        childNodes.back()->inArrayType  = rocfft_array_type_real;
+        childNodes.back()->outArrayType = rocfft_array_type_real;
     }
 }
 
@@ -2515,36 +2740,31 @@ void TreeNode::assign_buffers_CS_REAL_2D_EVEN(TraverseState&   state,
     assert(scheme == CS_REAL_2D_EVEN);
     assert(parent == nullptr);
 
-    obOut = OB_USER_OUT;
-
     if(direction == -1)
     {
         // RTRT
 
-        flipIn  = obIn;
-        flipOut = OB_TEMP;
-
+        // real-to-complex
         childNodes[0]->SetInputBuffer(state);
         childNodes[0]->obOut        = obOut;
         childNodes[0]->inArrayType  = inArrayType;
         childNodes[0]->outArrayType = outArrayType;
         childNodes[0]->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
 
-        flipIn   = OB_TEMP;
-        flipOut  = obOut;
-        obOutBuf = obOut;
-
+        // T
         childNodes[1]->SetInputBuffer(state);
-        childNodes[1]->obOut        = OB_TEMP;
+        childNodes[1]->obOut        = flipOut;
         childNodes[1]->inArrayType  = childNodes[0]->outArrayType;
         childNodes[1]->outArrayType = rocfft_array_type_complex_interleaved;
 
+        // complex-to-complex
         childNodes[2]->SetInputBuffer(state);
-        childNodes[2]->obOut = OB_TEMP;
+        childNodes[2]->obOut = flipOut;
         childNodes[2]->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
         childNodes[2]->inArrayType  = rocfft_array_type_complex_interleaved;
         childNodes[2]->outArrayType = rocfft_array_type_complex_interleaved;
 
+        // T
         childNodes[3]->SetInputBuffer(state);
         childNodes[3]->obOut        = obOut;
         childNodes[3]->inArrayType  = rocfft_array_type_complex_interleaved;
@@ -2553,36 +2773,37 @@ void TreeNode::assign_buffers_CS_REAL_2D_EVEN(TraverseState&   state,
     else
     { // TRTR
 
+        // The first transform only gets to play with the input buffer.
+        auto flipIn0 = flipIn;
+        flipIn       = obIn;
+
         // T
         childNodes[0]->SetInputBuffer(state);
-        childNodes[0]->obOut        = OB_TEMP;
+        childNodes[0]->obOut        = flipOut;
         childNodes[0]->inArrayType  = inArrayType;
         childNodes[0]->outArrayType = rocfft_array_type_complex_interleaved;
 
-        // C2C
+        // complex-to-complex
         childNodes[1]->SetInputBuffer(state);
-        childNodes[1]->obOut        = OB_TEMP;
+        childNodes[1]->obOut        = flipOut;
         childNodes[1]->inArrayType  = rocfft_array_type_complex_interleaved;
         childNodes[1]->outArrayType = rocfft_array_type_complex_interleaved;
-
-        flipIn  = OB_TEMP;
-        flipOut = OB_USER_IN;
         childNodes[1]->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
 
         // T
         childNodes[2]->SetInputBuffer(state);
-        childNodes[2]->obOut        = OB_USER_IN;
+        childNodes[2]->obOut        = obIn;
         childNodes[2]->inArrayType  = rocfft_array_type_complex_interleaved;
         childNodes[2]->outArrayType = inArrayType;
 
-        // C2R
+        // complex-to-real
         childNodes[3]->SetInputBuffer(state);
-        childNodes[3]->obOut        = OB_USER_OUT;
+        childNodes[3]->obOut        = obOut;
         childNodes[3]->inArrayType  = inArrayType;
         childNodes[3]->outArrayType = rocfft_array_type_real;
 
-        flipIn  = OB_TEMP;
-        flipOut = OB_USER_OUT;
+        flipIn = flipIn0;
+
         childNodes[3]->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
     }
 }
@@ -2599,11 +2820,6 @@ void TreeNode::assign_buffers_CS_REAL_3D_EVEN(TraverseState&   state,
 
     if(direction == -1)
     {
-        // RTRTRT
-
-        // NB: for out-of-place transforms, we can't fit the result of the first r2c transform into
-        // the input buffer.
-
         flipIn  = obIn;
         flipOut = OB_TEMP;
 
@@ -2618,91 +2834,122 @@ void TreeNode::assign_buffers_CS_REAL_3D_EVEN(TraverseState&   state,
         flipOut  = obOut;
         obOutBuf = obOut;
 
-        // T
-        childNodes[1]->SetInputBuffer(state);
-        childNodes[1]->obOut        = (placement == rocfft_placement_notinplace) ? obOut : OB_TEMP;
-        childNodes[1]->inArrayType  = childNodes[0]->outArrayType;
-        childNodes[1]->outArrayType = (placement == rocfft_placement_notinplace)
-                                          ? outArrayType
-                                          : rocfft_array_type_complex_interleaved;
+        // in-place SBCC for higher dimensions
+        if(childNodes.size() == 3)
+        {
+            childNodes[1]->SetInputBuffer(state);
+            childNodes[1]->obOut        = childNodes[1]->obIn;
+            childNodes[1]->inArrayType  = outArrayType;
+            childNodes[1]->outArrayType = outArrayType;
 
-        // R: c2c
-        childNodes[2]->inArrayType  = childNodes[1]->outArrayType;
-        childNodes[2]->outArrayType = childNodes[2]->inArrayType;
-        childNodes[2]->SetInputBuffer(state);
-        childNodes[2]->obOut = childNodes[2]->obIn;
-        flipIn               = childNodes[2]->obIn;
-        flipOut              = obOutBuf;
-        childNodes[2]->TraverseTreeAssignBuffersLogicA(state, flipOut, flipIn, obIn);
+            childNodes[2]->SetInputBuffer(state);
+            childNodes[2]->obOut        = childNodes[2]->obIn;
+            childNodes[2]->inArrayType  = outArrayType;
+            childNodes[2]->outArrayType = outArrayType;
+        }
+        // RTRTRT
+        else if(childNodes.size() == 6)
+        {
 
-        // T
-        childNodes[3]->SetInputBuffer(state);
-        childNodes[3]->obOut = (placement == rocfft_placement_notinplace) ? OB_TEMP : obOutBuf;
-        childNodes[3]->inArrayType  = childNodes[2]->outArrayType;
-        childNodes[3]->outArrayType = (childNodes[3]->obOut == OB_TEMP)
-                                          ? rocfft_array_type_complex_interleaved
-                                          : outArrayType;
+            // NB: for out-of-place transforms, we can't fit the result of the first r2c transform into
+            // the input buffer.
 
-        // R: c2c
-        childNodes[4]->SetInputBuffer(state);
-        childNodes[4]->obOut
-            = (placement == rocfft_placement_notinplace) ? childNodes[4]->obIn : flipIn;
-        childNodes[4]->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
-        childNodes[4]->inArrayType  = childNodes[3]->outArrayType;
-        childNodes[4]->outArrayType = (childNodes[4]->obOut == OB_TEMP)
-                                          ? rocfft_array_type_complex_interleaved
-                                          : outArrayType;
+            // T
+            childNodes[1]->SetInputBuffer(state);
+            childNodes[1]->obOut        = obOutBuf;
+            childNodes[1]->inArrayType  = childNodes[0]->outArrayType;
+            childNodes[1]->outArrayType = outArrayType;
 
-        // T
-        childNodes[5]->inArrayType  = childNodes[4]->outArrayType;
-        childNodes[5]->outArrayType = outArrayType;
-        childNodes[5]->SetInputBuffer(state);
-        childNodes[5]->obOut = obOutBuf;
+            // R: c2c
+            childNodes[2]->inArrayType  = childNodes[1]->outArrayType;
+            childNodes[2]->outArrayType = outArrayType;
+            childNodes[2]->SetInputBuffer(state);
+            childNodes[2]->obOut = obOutBuf;
+            flipIn               = childNodes[2]->obIn;
+            flipOut              = obOutBuf;
+            childNodes[2]->TraverseTreeAssignBuffersLogicA(state, flipOut, flipIn, obIn);
+
+            // T
+            childNodes[3]->SetInputBuffer(state);
+            childNodes[3]->obOut        = OB_TEMP;
+            childNodes[3]->inArrayType  = childNodes[2]->outArrayType;
+            childNodes[3]->outArrayType = rocfft_array_type_complex_interleaved;
+
+            // R: c2c
+            childNodes[4]->SetInputBuffer(state);
+            childNodes[4]->obOut = OB_TEMP;
+            childNodes[4]->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
+            childNodes[4]->inArrayType  = childNodes[3]->outArrayType;
+            childNodes[4]->outArrayType = rocfft_array_type_complex_interleaved;
+
+            // T
+            childNodes[5]->inArrayType  = childNodes[4]->outArrayType;
+            childNodes[5]->outArrayType = outArrayType;
+            childNodes[5]->SetInputBuffer(state);
+            childNodes[5]->obOut = obOutBuf;
+        }
     }
     else
-    { // TRTR
+    {
+        // in-place SBCC for higher dimensions
+        if(childNodes.size() == 3)
+        {
+            childNodes[0]->SetInputBuffer(state);
+            childNodes[0]->obOut        = childNodes[0]->obIn;
+            childNodes[0]->inArrayType  = inArrayType;
+            childNodes[0]->outArrayType = inArrayType;
 
-        // NB: only c2r can fit into the output buffer for out-of-place transforms.
+            childNodes[1]->SetInputBuffer(state);
+            childNodes[1]->obOut        = childNodes[1]->obIn;
+            childNodes[1]->inArrayType  = inArrayType;
+            childNodes[1]->outArrayType = inArrayType;
+        }
+        // TRTR
+        else
+        {
+            // NB: only c2r can fit into the output buffer for out-of-place transforms.
 
-        // Transpose
-        childNodes[0]->SetInputBuffer(state);
-        childNodes[0]->obOut        = OB_TEMP;
-        childNodes[0]->outArrayType = rocfft_array_type_complex_interleaved;
+            // Transpose
+            childNodes[0]->SetInputBuffer(state);
+            childNodes[0]->obOut        = OB_TEMP;
+            childNodes[0]->outArrayType = rocfft_array_type_complex_interleaved;
 
-        // c2c
-        childNodes[1]->SetInputBuffer(state);
-        childNodes[1]->obOut        = OB_USER_IN;
-        childNodes[1]->inArrayType  = rocfft_array_type_complex_interleaved;
-        childNodes[1]->outArrayType = inArrayType;
-        childNodes[1]->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
+            // c2c
+            childNodes[1]->SetInputBuffer(state);
+            childNodes[1]->obOut        = OB_USER_IN;
+            childNodes[1]->inArrayType  = rocfft_array_type_complex_interleaved;
+            childNodes[1]->outArrayType = inArrayType;
+            childNodes[1]->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
 
-        // Transpose
-        childNodes[2]->SetInputBuffer(state);
-        childNodes[2]->obOut        = OB_TEMP;
-        childNodes[2]->inArrayType  = childNodes[1]->outArrayType;
-        childNodes[2]->outArrayType = rocfft_array_type_complex_interleaved;
+            // Transpose
+            childNodes[2]->SetInputBuffer(state);
+            childNodes[2]->obOut        = OB_TEMP;
+            childNodes[2]->inArrayType  = childNodes[1]->outArrayType;
+            childNodes[2]->outArrayType = rocfft_array_type_complex_interleaved;
 
-        // c2c
-        childNodes[3]->SetInputBuffer(state);
-        childNodes[3]->obOut        = OB_USER_IN;
-        childNodes[3]->inArrayType  = rocfft_array_type_complex_interleaved;
-        childNodes[3]->outArrayType = inArrayType;
-        childNodes[3]->TraverseTreeAssignBuffersLogicA(state, flipOut, flipIn, obOutBuf);
+            // c2c
+            childNodes[3]->SetInputBuffer(state);
+            childNodes[3]->obOut        = OB_USER_IN;
+            childNodes[3]->inArrayType  = rocfft_array_type_complex_interleaved;
+            childNodes[3]->outArrayType = inArrayType;
+            childNodes[3]->TraverseTreeAssignBuffersLogicA(state, flipOut, flipIn, obOutBuf);
 
-        // Transpose
-        childNodes[4]->SetInputBuffer(state);
-        childNodes[4]->obOut        = OB_TEMP;
-        childNodes[4]->inArrayType  = childNodes[3]->outArrayType;
-        childNodes[4]->outArrayType = rocfft_array_type_complex_interleaved;
+            // Transpose
+            childNodes[4]->SetInputBuffer(state);
+            childNodes[4]->obOut        = OB_TEMP;
+            childNodes[4]->inArrayType  = childNodes[3]->outArrayType;
+            childNodes[4]->outArrayType = rocfft_array_type_complex_interleaved;
+        }
 
         // c2r
-        childNodes[5]->SetInputBuffer(state);
-        childNodes[5]->obOut        = obOutBuf;
-        childNodes[5]->inArrayType  = rocfft_array_type_complex_interleaved;
-        childNodes[5]->outArrayType = outArrayType;
-        childNodes[5]->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
+        auto& previousNode = childNodes[childNodes.size() - 2];
+        childNodes.back()->SetInputBuffer(state);
+        childNodes.back()->obOut        = obOutBuf;
+        childNodes.back()->inArrayType  = previousNode->outArrayType;
+        childNodes.back()->outArrayType = outArrayType;
+        childNodes.back()->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
 
-        obOut = childNodes[childNodes.size() - 1]->obOut;
+        obOut = childNodes.back()->obOut;
     }
 
 #if 0
@@ -2773,98 +3020,60 @@ void TreeNode::assign_buffers_CS_L1D_TRTRT(TraverseState&   state,
                                            OperatingBuffer& flipOut,
                                            OperatingBuffer& obOutBuf)
 {
-    childNodes[0]->SetInputBuffer(state);
-    childNodes[0]->obOut = flipOut;
-
-    std::swap(flipIn, flipOut);
-
-    childNodes[1]->SetInputBuffer(state);
-    if(childNodes[1]->childNodes.size())
+    if(parent == nullptr)
     {
-        childNodes[1]->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
+        obOutBuf = OB_USER_OUT;
 
-        size_t cs            = childNodes[1]->childNodes.size();
-        childNodes[1]->obOut = childNodes[1]->childNodes[cs - 1]->obOut;
-    }
-    else
-    {
-        childNodes[1]->obOut = flipOut;
+        // T
+        childNodes[0]->SetInputBuffer(state);
+        childNodes[0]->obOut = flipOut;
 
-        if(flipIn != obOutBuf)
+        // R
+        childNodes[1]->SetInputBuffer(state);
+        childNodes[1]->obOut = obOut == flipIn ? flipOut : flipIn;
+        if(childNodes[1]->childNodes.size())
         {
-            std::swap(flipIn, flipOut);
+            childNodes[1]->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
         }
-    }
 
-    if(obOut == OB_UNINIT)
-    {
+        // T
         childNodes[2]->SetInputBuffer(state);
-        childNodes[2]->obOut = obOutBuf;
+        childNodes[2]->obOut = obOut == flipIn ? flipIn : flipOut;
 
+        // R
         childNodes[3]->SetInputBuffer(state);
-        childNodes[3]->obOut = OB_TEMP;
+        childNodes[3]->obOut = obOut == flipIn ? flipOut : flipIn;
 
+        // T
         childNodes[4]->SetInputBuffer(state);
         childNodes[4]->obOut = obOutBuf;
-
-        obOut = childNodes[4]->obOut;
     }
     else
     {
-        if(obOut == obOutBuf)
+
+        // T
+        childNodes[0]->SetInputBuffer(state);
+        childNodes[0]->obOut = childNodes[0]->obIn == flipIn ? flipOut : flipIn;
+
+        // R
+        childNodes[1]->SetInputBuffer(state);
+        childNodes[1]->obOut = obOut == flipIn ? flipOut : flipIn;
+        if(childNodes[1]->childNodes.size())
         {
-            if(childNodes[1]->obOut == OB_TEMP)
-            {
-                childNodes[2]->SetInputBuffer(state);
-                childNodes[2]->obOut = obOutBuf;
-
-                childNodes[3]->SetInputBuffer(state);
-                childNodes[3]->obOut = OB_TEMP;
-
-                childNodes[4]->SetInputBuffer(state);
-                childNodes[4]->obOut = obOutBuf;
-            }
-            else
-            {
-                childNodes[2]->SetInputBuffer(state);
-                childNodes[2]->obOut = OB_TEMP;
-
-                childNodes[3]->SetInputBuffer(state);
-                childNodes[3]->obOut = OB_TEMP;
-
-                childNodes[4]->SetInputBuffer(state);
-                childNodes[4]->obOut = obOutBuf;
-            }
+            childNodes[1]->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
         }
-        else
-        {
-            if(childNodes[1]->obOut == OB_TEMP)
-            {
-                bool obOutBufIsReal = false;
-                if(parent != nullptr && parent->outArrayType == rocfft_array_type_real)
-                    obOutBufIsReal = true;
 
-                childNodes[2]->SetInputBuffer(state);
-                childNodes[2]->obOut = obOutBufIsReal ? OB_USER_IN : obOutBuf;
+        // T
+        childNodes[2]->SetInputBuffer(state);
+        childNodes[2]->obOut = obOut == flipIn ? flipIn : flipOut;
 
-                childNodes[3]->SetInputBuffer(state);
-                childNodes[3]->obOut = obOutBufIsReal ? OB_USER_IN : obOutBuf;
+        // R
+        childNodes[3]->SetInputBuffer(state);
+        childNodes[3]->obOut = obOut == flipIn ? flipOut : flipIn;
 
-                childNodes[4]->SetInputBuffer(state);
-                childNodes[4]->obOut = OB_TEMP;
-            }
-            else
-            {
-                childNodes[2]->SetInputBuffer(state);
-                childNodes[2]->obOut = OB_TEMP;
-
-                childNodes[3]->SetInputBuffer(state);
-                childNodes[3]->obOut = obOutBuf;
-
-                childNodes[4]->SetInputBuffer(state);
-                childNodes[4]->obOut = OB_TEMP;
-            }
-        }
+        // T
+        childNodes[4]->SetInputBuffer(state);
+        childNodes[4]->obOut = obOut;
     }
 }
 
@@ -2898,7 +3107,8 @@ void TreeNode::assign_buffers_CS_L1D_CC(TraverseState&   state,
     else
     {
         childNodes[0]->SetInputBuffer(state);
-        childNodes[0]->obOut = flipOut;
+        // childNodes[1] must be out-of-place:
+        childNodes[0]->obOut = flipOut == obOut ? flipIn : flipOut;
 
         childNodes[1]->SetInputBuffer(state);
         childNodes[1]->obOut = obOut;
@@ -2943,10 +3153,11 @@ void TreeNode::assign_buffers_CS_L1D_CRT(TraverseState&   state,
         childNodes[0]->obOut = flipOut;
 
         childNodes[1]->SetInputBuffer(state);
-        childNodes[1]->obOut = flipOut;
+        childNodes[1]->obOut = obOut == flipIn ? flipOut : flipIn;
 
+        // Last node is a transpose and must be out-of-place:
         childNodes[2]->SetInputBuffer(state);
-        childNodes[2]->obOut = flipIn;
+        childNodes[2]->obOut = obOut;
     }
 }
 
@@ -2993,15 +3204,12 @@ void TreeNode::assign_buffers_CS_RC(TraverseState&   state,
                                     OperatingBuffer& obOutBuf)
 {
     childNodes[0]->SetInputBuffer(state);
-    childNodes[0]->obOut = obIn;
+    childNodes[0]->obOut = flipOut;
     childNodes[0]->TraverseTreeAssignBuffersLogicA(state, flipIn, flipOut, obOutBuf);
-    if(childNodes[0]->childNodes.size() != 0 && placement == rocfft_placement_inplace)
-    {
-        childNodes[0]->obOut = flipIn;
-    }
 
     childNodes[1]->SetInputBuffer(state);
     childNodes[1]->obOut = obOutBuf;
+    childNodes[1]->TraverseTreeAssignBuffersLogicA(state, flipOut, flipIn, obOutBuf);
 
     obIn  = childNodes[0]->obIn;
     obOut = childNodes[1]->obOut;
@@ -3325,7 +3533,9 @@ void TreeNode::assign_params_CS_REAL_TRANSFORM_USING_CMPLX()
 
 void TreeNode::assign_params_CS_REAL_TRANSFORM_EVEN()
 {
-    assert(childNodes.size() == 3);
+    // definitely will have FFT + apply callback.  pre/post processing
+    // might be fused into the FFT or separate.
+    assert(childNodes.size() == 2 || childNodes.size() == 3);
 
     if(direction == -1)
     {
@@ -3355,54 +3565,71 @@ void TreeNode::assign_params_CS_REAL_TRANSFORM_EVEN()
         assert(fftPlan->length.size() == fftPlan->inStride.size());
         assert(fftPlan->length.size() == fftPlan->outStride.size());
 
-        auto& postPlan = childNodes[2];
-        assert(postPlan->scheme == CS_KERNEL_R_TO_CMPLX
-               || postPlan->scheme == CS_KERNEL_R_TO_CMPLX_TRANSPOSE);
-        postPlan->inStride = inStride;
-        for(int i = 1; i < postPlan->inStride.size(); ++i)
+        if(childNodes.size() == 3)
         {
-            postPlan->inStride[i] /= 2;
-        }
-        postPlan->iDist     = iDist / 2;
-        postPlan->outStride = outStride;
-        postPlan->oDist     = oDist;
+            auto& postPlan = childNodes[2];
+            assert(postPlan->scheme == CS_KERNEL_R_TO_CMPLX
+                   || postPlan->scheme == CS_KERNEL_R_TO_CMPLX_TRANSPOSE);
+            postPlan->inStride = inStride;
+            for(int i = 1; i < postPlan->inStride.size(); ++i)
+            {
+                postPlan->inStride[i] /= 2;
+            }
+            postPlan->iDist     = iDist / 2;
+            postPlan->outStride = outStride;
+            postPlan->oDist     = oDist;
 
-        assert(postPlan->length.size() == postPlan->inStride.size());
-        assert(postPlan->length.size() == postPlan->outStride.size());
+            assert(postPlan->length.size() == postPlan->inStride.size());
+            assert(postPlan->length.size() == postPlan->outStride.size());
+        }
+        else
+        {
+            // we fused post-proc into the FFT kernel, so give the correct out strides
+            fftPlan->outStride = outStride;
+            fftPlan->oDist     = oDist;
+        }
     }
     else
     {
+
         // backward transform, c2r
+        bool fusedPreProcessing = childNodes[0]->ebtype == EmbeddedType::C2Real_PRE;
 
         // oDist is in reals, subplan->oDist is in complexes
 
-        auto& prePlan = childNodes[0];
-        assert(prePlan->scheme == CS_KERNEL_CMPLX_TO_R);
-
-        prePlan->iDist = iDist;
-        prePlan->oDist = oDist / 2;
-
-        // Strides are actually distances for multimensional transforms.
-        // Only the first value is used, but we require dimension values.
-        prePlan->inStride  = inStride;
-        prePlan->outStride = outStride;
-        // Strides are in complex types
-        for(int i = 1; i < prePlan->outStride.size(); ++i)
+        if(!fusedPreProcessing)
         {
-            prePlan->outStride[i] /= 2;
+            auto& prePlan = childNodes[0];
+            assert(prePlan->scheme == CS_KERNEL_CMPLX_TO_R);
+
+            prePlan->iDist = iDist;
+            prePlan->oDist = oDist / 2;
+
+            // Strides are actually distances for multimensional transforms.
+            // Only the first value is used, but we require dimension values.
+            prePlan->inStride  = inStride;
+            prePlan->outStride = outStride;
+            // Strides are in complex types
+            for(int i = 1; i < prePlan->outStride.size(); ++i)
+            {
+                prePlan->outStride[i] /= 2;
+            }
+            assert(prePlan->length.size() == prePlan->inStride.size());
+            assert(prePlan->length.size() == prePlan->outStride.size());
         }
 
-        auto& fftPlan = childNodes[1];
+        auto& fftPlan = fusedPreProcessing ? childNodes[0] : childNodes[1];
         // Transform the strides from real to complex.
 
-        fftPlan->inStride  = outStride;
-        fftPlan->iDist     = oDist / 2;
+        fftPlan->inStride  = fusedPreProcessing ? inStride : outStride;
+        fftPlan->iDist     = fusedPreProcessing ? iDist : oDist / 2;
         fftPlan->outStride = outStride;
-        fftPlan->oDist     = fftPlan->iDist;
+        fftPlan->oDist     = oDist / 2;
         // The strides must be translated from real to complex.
         for(int i = 1; i < fftPlan->inStride.size(); ++i)
         {
-            fftPlan->inStride[i] /= 2;
+            if(!fusedPreProcessing)
+                fftPlan->inStride[i] /= 2;
             fftPlan->outStride[i] /= 2;
         }
 
@@ -3410,15 +3637,12 @@ void TreeNode::assign_params_CS_REAL_TRANSFORM_EVEN()
         assert(fftPlan->length.size() == fftPlan->inStride.size());
         assert(fftPlan->length.size() == fftPlan->outStride.size());
 
-        assert(prePlan->length.size() == prePlan->inStride.size());
-        assert(prePlan->length.size() == prePlan->outStride.size());
-
         // we apply callbacks on the root plan's output
         TreeNode* rootPlan = this;
         while(rootPlan->parent != nullptr)
             rootPlan = rootPlan->parent;
 
-        auto& applyCallback      = childNodes[2];
+        auto& applyCallback      = childNodes.back();
         applyCallback->inStride  = rootPlan->outStride;
         applyCallback->iDist     = rootPlan->oDist;
         applyCallback->outStride = rootPlan->outStride;
@@ -3551,9 +3775,6 @@ void TreeNode::assign_params_CS_L1D_CRT()
     auto& col2colPlan = childNodes[0];
     auto& row2rowPlan = childNodes[1];
     auto& transPlan   = childNodes[2];
-
-    if(parent != NULL)
-        assert(obIn == obOut);
 
     if((obOut == OB_USER_OUT) || (obOut == OB_TEMP_CMPLX_FOR_REAL))
     {
@@ -3773,8 +3994,6 @@ void TreeNode::assign_params_CS_L1D_TRTRT()
     }
     else
     {
-        trans1Plan->transTileDir = TTD_IP_VER;
-
         if(parent->scheme == CS_L1D_TRTRT)
         {
             trans1Plan->outStride.push_back(outStride[0]);
@@ -3850,8 +4069,6 @@ void TreeNode::assign_params_CS_L1D_TRTRT()
     }
     else
     {
-        trans2Plan->transTileDir = TTD_IP_VER;
-
         if((parent == NULL) || (parent && (parent->scheme == CS_L1D_TRTRT)))
         {
             trans2Plan->outStride.push_back(outStride[0]);
@@ -3923,9 +4140,6 @@ void TreeNode::assign_params_CS_L1D_TRTRT()
             }
         }
     }
-
-    if(trans3Plan->obOut != OB_TEMP)
-        trans3Plan->transTileDir = TTD_IP_VER;
 
     trans3Plan->inStride = row2Plan->outStride;
     trans3Plan->iDist    = row2Plan->oDist;
@@ -4093,110 +4307,168 @@ void TreeNode::assign_params_CS_REAL_3D_EVEN()
             rcplan->TraverseTreeAssignParamsLogicA();
         }
 
-        auto& trans1 = childNodes[1];
+        // in-place SBCC for higher dims
+        if(childNodes.size() == 3)
         {
-            trans1->inStride = rcplan->outStride;
-            trans1->iDist    = rcplan->oDist;
-            trans1->outStride.push_back(1);
-            trans1->outStride.push_back(trans1->length[1]);
-            trans1->outStride.push_back(trans1->length[2] * trans1->outStride[1]);
-            trans1->oDist = trans1->iDist;
-        }
+            auto& sbccZ     = childNodes[1];
+            sbccZ->inStride = outStride;
+            // SBCC along Z dim
+            std::swap(sbccZ->inStride[1], sbccZ->inStride[2]);
+            std::swap(sbccZ->inStride[0], sbccZ->inStride[1]);
+            sbccZ->iDist     = oDist;
+            sbccZ->outStride = sbccZ->inStride;
+            sbccZ->oDist     = oDist;
+            sbccZ->TraverseTreeAssignParamsLogicA();
 
-        auto& c1plan = childNodes[2];
-        {
-            c1plan->inStride  = trans1->outStride;
-            c1plan->iDist     = trans1->oDist;
-            c1plan->outStride = c1plan->inStride;
-            c1plan->oDist     = c1plan->iDist;
-            c1plan->dimension = 1;
-            c1plan->TraverseTreeAssignParamsLogicA();
+            auto& sbccY     = childNodes[2];
+            sbccY->inStride = outStride;
+            // SBCC along Y dim
+            std::swap(sbccY->inStride[0], sbccY->inStride[1]);
+            sbccY->iDist     = oDist;
+            sbccY->outStride = sbccY->inStride;
+            sbccY->oDist     = oDist;
+            sbccY->TraverseTreeAssignParamsLogicA();
         }
-
-        auto& trans2 = childNodes[3];
+        // TRTRTR
+        else
         {
-            trans2->inStride = c1plan->outStride;
-            trans2->iDist    = c1plan->oDist;
-            trans2->outStride.push_back(1);
-            trans2->outStride.push_back(trans2->length[1]);
-            trans2->outStride.push_back(trans2->length[2] * trans2->outStride[1]);
-            trans2->oDist = trans2->iDist;
-        }
+            auto& trans1 = childNodes[1];
+            {
+                trans1->inStride = rcplan->outStride;
+                trans1->iDist    = rcplan->oDist;
+                trans1->outStride.push_back(1);
+                trans1->outStride.push_back(trans1->length[1]);
+                trans1->outStride.push_back(trans1->length[2] * trans1->outStride[1]);
+                trans1->oDist = trans1->iDist;
+            }
 
-        auto& c2plan = childNodes[4];
-        {
-            c2plan->inStride  = trans2->outStride;
-            c2plan->iDist     = trans2->oDist;
-            c2plan->outStride = c2plan->inStride;
-            c2plan->oDist     = c2plan->iDist;
-            c2plan->dimension = 1;
-            c2plan->TraverseTreeAssignParamsLogicA();
-        }
+            auto& c1plan = childNodes[2];
+            {
+                c1plan->inStride  = trans1->outStride;
+                c1plan->iDist     = trans1->oDist;
+                c1plan->outStride = c1plan->inStride;
+                c1plan->oDist     = c1plan->iDist;
+                c1plan->dimension = 1;
+                c1plan->TraverseTreeAssignParamsLogicA();
+            }
 
-        auto& trans3 = childNodes[5];
-        {
-            trans3->inStride  = c2plan->outStride;
-            trans3->iDist     = c2plan->oDist;
-            trans3->outStride = outStride;
-            trans3->oDist     = oDist;
+            auto& trans2 = childNodes[3];
+            {
+                trans2->inStride = c1plan->outStride;
+                trans2->iDist    = c1plan->oDist;
+                trans2->outStride.push_back(1);
+                trans2->outStride.push_back(trans2->length[1]);
+                trans2->outStride.push_back(trans2->length[2] * trans2->outStride[1]);
+                trans2->oDist = trans2->iDist;
+            }
+
+            auto& c2plan = childNodes[4];
+            {
+                c2plan->inStride  = trans2->outStride;
+                c2plan->iDist     = trans2->oDist;
+                c2plan->outStride = c2plan->inStride;
+                c2plan->oDist     = c2plan->iDist;
+                c2plan->dimension = 1;
+                c2plan->TraverseTreeAssignParamsLogicA();
+            }
+
+            auto& trans3 = childNodes[5];
+            {
+                trans3->inStride  = c2plan->outStride;
+                trans3->iDist     = c2plan->oDist;
+                trans3->outStride = outStride;
+                trans3->oDist     = oDist;
+            }
         }
     }
     else
     {
+        // input strides for last c2r node
+        std::vector<size_t> c2r_inStride = inStride;
+        size_t              c2r_iDist    = iDist;
+
+        // in-place SBCC for higher dimensions
+        if(childNodes.size() == 3)
         {
-            auto& trans3     = childNodes[0];
-            trans3->inStride = inStride;
-            trans3->iDist    = iDist;
-            trans3->outStride.push_back(1);
-            trans3->outStride.push_back(trans3->outStride[0] * trans3->length[2]);
-            trans3->outStride.push_back(trans3->outStride[1] * trans3->length[0]);
-            trans3->oDist = trans3->iDist;
+            auto& sbccZ     = childNodes[0];
+            sbccZ->inStride = inStride;
+            // SBCC along Z dim
+            std::swap(sbccZ->inStride[1], sbccZ->inStride[2]);
+            std::swap(sbccZ->inStride[0], sbccZ->inStride[1]);
+            sbccZ->iDist     = iDist;
+            sbccZ->outStride = sbccZ->inStride;
+            sbccZ->oDist     = iDist;
+            sbccZ->TraverseTreeAssignParamsLogicA();
+
+            auto& sbccY     = childNodes[1];
+            sbccY->inStride = inStride;
+            // SBCC along Y dim
+            std::swap(sbccY->inStride[0], sbccY->inStride[1]);
+            sbccY->iDist     = iDist;
+            sbccY->outStride = sbccY->inStride;
+            sbccY->oDist     = iDist;
+            sbccY->TraverseTreeAssignParamsLogicA();
+        }
+        // RTRTRT
+        else
+        {
+            {
+                auto& trans3     = childNodes[0];
+                trans3->inStride = inStride;
+                trans3->iDist    = iDist;
+                trans3->outStride.push_back(1);
+                trans3->outStride.push_back(trans3->outStride[0] * trans3->length[2]);
+                trans3->outStride.push_back(trans3->outStride[1] * trans3->length[0]);
+                trans3->oDist = trans3->iDist;
+            }
+
+            {
+                auto& ccplan      = childNodes[1];
+                ccplan->inStride  = childNodes[0]->outStride;
+                ccplan->iDist     = childNodes[0]->oDist;
+                ccplan->outStride = ccplan->inStride;
+                ccplan->oDist     = ccplan->iDist;
+                ccplan->dimension = 1;
+                ccplan->TraverseTreeAssignParamsLogicA();
+            }
+
+            {
+                auto& trans2     = childNodes[2];
+                trans2->inStride = childNodes[1]->outStride;
+                trans2->iDist    = childNodes[1]->oDist;
+                trans2->outStride.push_back(1);
+                trans2->outStride.push_back(trans2->outStride[0] * trans2->length[2]);
+                trans2->outStride.push_back(trans2->outStride[1] * trans2->length[0]);
+                trans2->oDist = trans2->iDist;
+            }
+
+            {
+                auto& ccplan      = childNodes[3];
+                ccplan->inStride  = childNodes[2]->outStride;
+                ccplan->iDist     = childNodes[2]->oDist;
+                ccplan->outStride = ccplan->inStride;
+                ccplan->oDist     = ccplan->iDist;
+                ccplan->dimension = 1;
+                ccplan->TraverseTreeAssignParamsLogicA();
+            }
+
+            {
+                auto& trans1     = childNodes[4];
+                trans1->inStride = childNodes[3]->outStride;
+                trans1->iDist    = childNodes[3]->oDist;
+                trans1->outStride.push_back(1);
+                trans1->outStride.push_back(trans1->outStride[0] * trans1->length[2]);
+                trans1->outStride.push_back(trans1->outStride[1] * trans1->length[0]);
+                trans1->oDist = trans1->iDist;
+                c2r_inStride  = trans1->outStride;
+                c2r_iDist     = trans1->oDist;
+            }
         }
 
+        auto& crplan = childNodes.back();
         {
-            auto& ccplan      = childNodes[1];
-            ccplan->inStride  = childNodes[0]->outStride;
-            ccplan->iDist     = childNodes[0]->oDist;
-            ccplan->outStride = ccplan->inStride;
-            ccplan->oDist     = ccplan->iDist;
-            ccplan->dimension = 1;
-            ccplan->TraverseTreeAssignParamsLogicA();
-        }
-
-        {
-            auto& trans2     = childNodes[2];
-            trans2->inStride = childNodes[1]->outStride;
-            trans2->iDist    = childNodes[1]->oDist;
-            trans2->outStride.push_back(1);
-            trans2->outStride.push_back(trans2->outStride[0] * trans2->length[2]);
-            trans2->outStride.push_back(trans2->outStride[1] * trans2->length[0]);
-            trans2->oDist = trans2->iDist;
-        }
-
-        {
-            auto& ccplan      = childNodes[3];
-            ccplan->inStride  = childNodes[2]->outStride;
-            ccplan->iDist     = childNodes[2]->oDist;
-            ccplan->outStride = ccplan->inStride;
-            ccplan->oDist     = ccplan->iDist;
-            ccplan->dimension = 1;
-            ccplan->TraverseTreeAssignParamsLogicA();
-        }
-
-        {
-            auto& trans1     = childNodes[4];
-            trans1->inStride = childNodes[3]->outStride;
-            trans1->iDist    = childNodes[3]->oDist;
-            trans1->outStride.push_back(1);
-            trans1->outStride.push_back(trans1->outStride[0] * trans1->length[2]);
-            trans1->outStride.push_back(trans1->outStride[1] * trans1->length[0]);
-            trans1->oDist = trans1->iDist;
-        }
-
-        auto& crplan = childNodes[5];
-        {
-            crplan->inStride  = childNodes[4]->outStride;
-            crplan->iDist     = childNodes[4]->oDist;
+            crplan->inStride  = c2r_inStride;
+            crplan->iDist     = c2r_iDist;
             crplan->outStride = outStride;
             crplan->oDist     = oDist;
             crplan->dimension = 1;
@@ -4534,10 +4806,16 @@ void TreeNode::Print(rocfft_ostream& os, const int indent) const
     for(size_t i = 0; i < outStride.size(); i++)
         os << outStride[i] << " ";
 
-    os << "\n" << indentStr.c_str();
-    os << "iOffset: " << iOffset;
-    os << "\n" << indentStr.c_str();
-    os << "oOffset: " << oOffset;
+    if(iOffset)
+    {
+        os << "\n" << indentStr.c_str();
+        os << "iOffset: " << iOffset;
+    }
+    if(oOffset)
+    {
+        os << "\n" << indentStr.c_str();
+        os << "oOffset: " << oOffset;
+    }
 
     os << "\n" << indentStr.c_str();
     os << "iDist: " << iDist;
@@ -4599,14 +4877,33 @@ void TreeNode::Print(rocfft_ostream& os, const int indent) const
         os << "unset";
         break;
     }
-    os << "\n" << indentStr.c_str() << "TTD: " << transTileDir;
-    os << "\n" << indentStr.c_str() << "large1D: " << large1D;
-    os << "\n" << indentStr.c_str() << "largeTwdBase: " << largeTwdBase;
-    os << "\n" << indentStr.c_str() << "lengthBlue: " << lengthBlue << "\n";
+    if(large1D)
+    {
+        os << "\n" << indentStr.c_str() << "large1D: " << large1D;
+        os << "\n" << indentStr.c_str() << "largeTwdBase: " << largeTwdBase;
+    }
+    if(lengthBlue)
+        os << "\n" << indentStr.c_str() << "lengthBlue: " << lengthBlue;
+    os << "\n";
+    switch(ebtype)
+    {
+    case EmbeddedType::NONE:
+        break;
+    case EmbeddedType::C2Real_PRE:
+        os << indentStr.c_str() << "EmbeddedType: C2Real_PRE\n";
+        break;
+    case EmbeddedType::Real2C_POST:
+        os << indentStr.c_str() << "EmbeddedType: Real2C_POST\n";
+        break;
+    }
 
     os << indentStr << PrintOperatingBuffer(obIn) << " -> " << PrintOperatingBuffer(obOut) << "\n";
     os << indentStr << PrintOperatingBufferCode(obIn) << " -> " << PrintOperatingBufferCode(obOut)
        << "\n";
+    for(const auto& c : comments)
+    {
+        os << indentStr << "comment: " << c << "\n";
+    }
 
     if(childNodes.size())
     {
@@ -4657,6 +4954,84 @@ static rocfft_result_placement EffectivePlacement(OperatingBuffer         obIn,
     return obIn == obOut ? rocfft_placement_inplace : rocfft_placement_notinplace;
 }
 
+void Optimize_Transpose_With_Strides(ExecPlan& execPlan, std::vector<TreeNode*>& execSeq)
+{
+    // If this is a stockham fft that does multiple rows in one
+    // kernel, followed by a 2d transpose, adjust output strides to
+    // replace the transpose.  Multiple rows will ensure that the
+    // transposed column writes are coalesced.
+    for(auto it = execSeq.begin(); it != execSeq.end(); ++it)
+    {
+        auto stockham = *it;
+        if(stockham->scheme != CS_KERNEL_STOCKHAM)
+            continue;
+
+        size_t wgs, numTrans;
+        DetermineSizes(stockham->length[0], wgs, numTrans);
+        if(numTrans < 2)
+            continue;
+
+        auto next = it + 1;
+        if(next == execSeq.end())
+            break;
+        auto transpose = *next;
+        if(transpose->scheme == CS_KERNEL_TRANSPOSE
+           && stockham->length == transpose->length
+           // can't get rid of a transpose that also does twiddle multiplication
+           && transpose->large1D == 0
+           // This is a transpose, which must be out-of-place
+           && EffectivePlacement(stockham->obIn, transpose->obOut, execPlan.rootPlan->placement)
+                  == rocfft_placement_notinplace)
+        {
+            stockham->outStride = transpose->outStride;
+            std::swap(stockham->outStride[0], stockham->outStride[1]);
+            stockham->obOut        = transpose->obOut;
+            stockham->outArrayType = transpose->outArrayType;
+            stockham->placement    = rocfft_placement_notinplace;
+            stockham->oDist        = transpose->oDist;
+            RemoveNode(execPlan, transpose);
+        }
+    }
+
+    // Similarly, if we have a 2D transpose followed by a stockham
+    // fft that does multiple rows in one kernel, adjust input
+    // strides to replace the transpose.  Multiple rows will ensure
+    // that the transposed column reads are coalesced.
+    for(auto it = execSeq.begin(); it != execSeq.end(); ++it)
+    {
+        auto transpose = *it;
+        // can't get rid of a transpose that also does twiddle multiplication
+        if(transpose->scheme != CS_KERNEL_TRANSPOSE || transpose->large1D != 0)
+            continue;
+
+        auto next = it + 1;
+        if(next == execSeq.end())
+            break;
+        auto stockham = *next;
+
+        if(stockham->scheme != CS_KERNEL_STOCKHAM)
+            continue;
+
+        size_t wgs, numTrans;
+        DetermineSizes(stockham->length[0], wgs, numTrans);
+        if(numTrans < 2)
+            continue;
+
+        // This is a transpose, which must be out-of-place
+        if(EffectivePlacement(transpose->obIn, stockham->obOut, execPlan.rootPlan->placement)
+           == rocfft_placement_notinplace)
+        {
+            stockham->inStride = transpose->inStride;
+            std::swap(stockham->inStride[0], stockham->inStride[1]);
+            stockham->obIn        = transpose->obIn;
+            stockham->inArrayType = transpose->inArrayType;
+            stockham->placement   = rocfft_placement_notinplace;
+            stockham->iDist       = transpose->iDist;
+            RemoveNode(execPlan, transpose);
+        }
+    }
+}
+
 void Optimize_R_TO_CMPLX_TRANSPOSE(ExecPlan& execPlan, std::vector<TreeNode*>& execSeq)
 {
     // combine R_TO_CMPLX and following transpose
@@ -4683,6 +5058,8 @@ void Optimize_R_TO_CMPLX_TRANSPOSE(ExecPlan& execPlan, std::vector<TreeNode*>& e
             assert(r_to_cmplx->placement == rocfft_placement_notinplace);
             r_to_cmplx->outStride = transpose->outStride;
             r_to_cmplx->oDist     = transpose->oDist;
+            r_to_cmplx->comments.push_back("fused " + PrintScheme(CS_KERNEL_R_TO_CMPLX)
+                                           + " and following " + PrintScheme(transpose->scheme));
             RemoveNode(execPlan, transpose);
         }
     }
@@ -4731,6 +5108,9 @@ void Optimize_TRANSPOSE_CMPLX_TO_R(ExecPlan& execPlan, std::vector<TreeNode*>& e
             (*cmplx_to_r)->inStride    = (*transpose)->inStride;
             (*cmplx_to_r)->length      = (*transpose)->length;
             (*cmplx_to_r)->iDist       = (*transpose)->iDist;
+            (*cmplx_to_r)
+                ->comments.push_back("fused " + PrintScheme(CS_KERNEL_CMPLX_TO_R)
+                                     + " and preceding " + PrintScheme((*transpose)->scheme));
             RemoveNode(execPlan, *transpose);
         }
     }
@@ -4764,6 +5144,10 @@ void Optimize_STOCKHAM_TRANSPOSE_Z_XY(ExecPlan& execPlan, std::vector<TreeNode*>
             assert((*stockham)->placement == rocfft_placement_notinplace);
             (*stockham)->outStride = (*transpose)->outStride;
             (*stockham)->oDist     = (*transpose)->oDist;
+
+            (*stockham)->comments.push_back("fused " + PrintScheme(CS_KERNEL_STOCKHAM)
+                                            + " and following "
+                                            + PrintScheme((*transpose)->scheme));
             RemoveNode(execPlan, *transpose);
         }
     }
@@ -4803,6 +5187,9 @@ void Optimize_STOCKHAM_TRANSPOSE_XY_Z(ExecPlan& execPlan, std::vector<TreeNode*>
             (*stockham2)->inArrayType = (*stockham2)->outArrayType;
             (*stockham2)->placement   = rocfft_placement_inplace;
 
+            (*transpose2)
+                ->comments.push_back("fused " + PrintScheme(CS_KERNEL_TRANSPOSE_XY_Z)
+                                     + " and preceding " + PrintScheme((*stockham1)->scheme));
             RemoveNode(execPlan, *stockham1);
         }
     }
@@ -4844,6 +5231,10 @@ void Optimize_STOCKHAM_R_TO_CMPLX_TRANSPOSE_Z_XY(ExecPlan&               execPla
                 (*stockham)->outStride.push_back((*stockham)->outStride[1]);
             }
 
+            (*stockham)->comments.push_back("fused " + PrintScheme(CS_KERNEL_STOCKHAM)
+                                            + " and following "
+                                            + PrintScheme((*r_to_cmplx_transpose)->scheme));
+
             // NB:
             //   Don't remove "*stockham" kernel beacause the combined 2 twiddle tables
             //   are stored there.
@@ -4860,6 +5251,7 @@ static void OptimizePlan(ExecPlan& execPlan)
         Optimize_STOCKHAM_TRANSPOSE_Z_XY,
         Optimize_STOCKHAM_TRANSPOSE_XY_Z,
         Optimize_STOCKHAM_R_TO_CMPLX_TRANSPOSE_Z_XY,
+        Optimize_Transpose_With_Strides,
     };
     for(auto pass : passes)
     {

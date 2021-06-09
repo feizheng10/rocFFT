@@ -74,7 +74,7 @@ bool PlanPowX(ExecPlan& execPlan)
                                              false,
                                              LTWD_BASE_DEFAULT,
                                              false,
-                                             false,
+                                             node->ebtype != EmbeddedType::NONE,
                                              kernel.factors);
             if(node->twiddles == nullptr)
                 return false;
@@ -166,11 +166,12 @@ bool PlanPowX(ExecPlan& execPlan)
 
     for(size_t i = 0; i < execPlan.execSeq.size(); i++)
     {
-        DevFnCall ptr = nullptr;
-        GridParam gp;
-        size_t    bwd = 1;
-        size_t    wgs, lds, lds_padding;
-        wgs = lds = lds_padding = 0;
+        DevFnCall    ptr = nullptr;
+        GridParam    gp;
+        size_t       bwd         = 1;
+        size_t       wgs         = 0;
+        size_t       lds         = 0;
+        unsigned int lds_padding = 0;
 
         switch(execPlan.execSeq[i]->scheme)
         {
@@ -185,10 +186,14 @@ bool PlanPowX(ExecPlan& execPlan)
                 fpkey(execPlan.execSeq[i]->length[0], execPlan.execSeq[0]->precision));
 
             ptr = kernel.device_function;
+            if(execPlan.execSeq[i]->ebtype != EmbeddedType::NONE)
+                lds_padding = 1;
             if(kernel.threads_per_block > 0)
             {
                 gp.b_x   = (batch + kernel.batches_per_block - 1) / kernel.batches_per_block;
                 gp.tpb_x = kernel.threads_per_block;
+
+                lds = (execPlan.execSeq[i]->length[0] + lds_padding) * kernel.batches_per_block;
             }
             else
             {
@@ -214,6 +219,8 @@ bool PlanPowX(ExecPlan& execPlan)
                                       execPlan.execSeq[i]->batch,
                                       std::multiplies<size_t>());
             gp.tpb_x = kernel.threads_per_block;
+
+            lds = execPlan.execSeq[i]->length[0] * kernel.batches_per_block;
         }
         break;
         case CS_KERNEL_STOCKHAM_BLOCK_RC:
@@ -371,24 +378,35 @@ bool PlanPowX(ExecPlan& execPlan)
             break;
         case CS_KERNEL_2D_SINGLE:
         {
-
-            ptr = function_pool::get_function(fpkey(execPlan.execSeq[i]->length[0],
-                                                    execPlan.execSeq[i]->length[1],
-                                                    execPlan.execSeq[0]->precision));
-
-            // Run one threadblock per transform, since we're
-            // combining a row transform and a column transform in
-            // one kernel.  The transform must not cross threadblock
-            // boundaries, or else we are unable to make the row
-            // transform finish completely before starting the column
-            // transform.
-            gp.b_x = execPlan.execSeq[i]->batch;
+            auto kernel = function_pool::get_kernel(fpkey(execPlan.execSeq[i]->length[0],
+                                                          execPlan.execSeq[i]->length[1],
+                                                          execPlan.execSeq[0]->precision));
+            ptr         = kernel.device_function;
+            if(!kernel.factors.empty())
+            {
+                // when old generator goes away, we will always have factors
+                gp.b_x = (execPlan.execSeq[i]->batch + kernel.batches_per_block - 1)
+                         / kernel.batches_per_block;
+                gp.tpb_x = kernel.threads_per_block;
+                lds      = execPlan.execSeq[i]->length[0] * execPlan.execSeq[i]->length[1]
+                      * kernel.batches_per_block;
+            }
+            else
+            {
+                // Run one threadblock per transform, since we're
+                // combining a row transform and a column transform in
+                // one kernel.  The transform must not cross threadblock
+                // boundaries, or else we are unable to make the row
+                // transform finish completely before starting the column
+                // transform.
+                gp.b_x   = execPlan.execSeq[i]->batch;
+                gp.tpb_x = Get2DSingleThreadCount(
+                    execPlan.execSeq[i]->length[0], execPlan.execSeq[i]->length[1], GetWGSAndNT);
+            }
             // if we're doing 3D transform, we need to repeat the 2D
             // transform in the 3rd dimension
             if(execPlan.execSeq[i]->length.size() > 2)
                 gp.b_x *= execPlan.execSeq[i]->length[2];
-            gp.tpb_x = Get2DSingleThreadCount(
-                execPlan.execSeq[i]->length[0], execPlan.execSeq[i]->length[1], GetWGSAndNT);
             break;
         }
         case CS_KERNEL_APPLY_CALLBACK:
@@ -403,6 +421,7 @@ bool PlanPowX(ExecPlan& execPlan)
 
         gp.lds_bytes = (lds + lds_padding * bwd) * PrecisionWidth(execPlan.execSeq[0]->precision)
                        * sizeof(float2);
+        execPlan.execSeq[i]->lds_padding = lds_padding;
         execPlan.devFnCall.push_back(ptr);
         execPlan.gridParam.push_back(gp);
     }
@@ -453,6 +472,15 @@ static float execution_bandwidth_GB_per_s(size_t data_size_bytes, float duration
 // might also return 0.0 if the bandwidth can't be queried.
 static float max_memory_bandwidth_GB_per_s()
 {
+    // Try to get the device bandwidth from an environment variable:
+    char* pdevbw = NULL;
+    pdevbw       = getenv("ROCFFT_DEVICE_BW");
+    if(pdevbw != NULL)
+    {
+        return atof(pdevbw);
+    }
+
+    // Try to get the device bandwidth from hip calls:
     int deviceid = 0;
     hipGetDevice(&deviceid);
     int max_memory_clock_kHz = 0;
@@ -498,8 +526,11 @@ void DebugPrintBuffer(rocfft_ostream&            stream,
     const size_t size_elems = compute_size(length_cm, stride_cm, batch, dist);
 
     size_t base_type_size = (precision == rocfft_precision_double) ? sizeof(double) : sizeof(float);
-    // assume complex elements for now
-    base_type_size *= 2;
+    if(type != rocfft_array_type_real)
+    {
+        // complex elements
+        base_type_size *= 2;
+    }
 
     size_t size_bytes = size_elems * base_type_size;
     // convert length, stride to row-major for use with printbuffer
@@ -509,7 +540,7 @@ void DebugPrintBuffer(rocfft_ostream&            stream,
     std::reverse(stride_rm.begin(), stride_rm.end());
     std::vector<std::vector<char>> bufvec;
     std::vector<size_t>            print_offset(2, offset);
-    if(type == rocfft_array_type_complex_planar || type == rocfft_array_type_hermitian_planar)
+    if(array_type_is_planar(type))
     {
         // separate the real/imag data, so printbuffer will print them separately
         bufvec.resize(2);
