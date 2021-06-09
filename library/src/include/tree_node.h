@@ -229,7 +229,7 @@ public:
     // Real-complex and complex-real node builders:
     void build_real();
     void build_real_embed();
-    void build_real_even_1D(bool fuse_pre_post_processing = true);
+    void build_real_even_1D(bool fuse_pre_post_processing = false);
     void build_real_even_2D();
     void build_real_even_3D();
 
