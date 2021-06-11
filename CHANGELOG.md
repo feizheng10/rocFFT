@@ -5,7 +5,7 @@ Full documentation for rocFFT is available at [rocfft.readthedocs.io](https://ro
 ## [(Unreleased) rocFFT 1.0.13 for ROCm 4.4.0]
 
 ### Optimizations
-- Improved many 1D and 2D plans by removing unnecessary transpose steps.
+- Improved many plans by removing unnecessary transpose steps.
 - Optimized scheme selection for 3D problems.
   - Imposed less restrictions on 3D_BLOCK_RC selection. More problems can use 3D_BLOCK_RC and
     have some performance gain.
@@ -14,11 +14,15 @@ Full documentation for rocFFT is available at [rocfft.readthedocs.io](https://ro
     threshold test.
 - Optimized some even-length R2C/C2R cases by doing more operations
   in-place and combining pre/post processing into Stockham kernels.
+- Added radix-17.
 
 ### Added
 - Added new kernel generator for select fused-2D transforms.
 
-## [(Unreleased) rocFFT 1.0.12 for ROCm 4.3.0]
+### Fixed
+- Improved large 1D transform decompositions.
+
+## [rocFFT 1.0.12 for ROCm 4.3.0]
 
 ### Changed
   Re-split device code into single-precision, double-precision, and miscellaneous kernels.
@@ -44,7 +48,11 @@ Full documentation for rocFFT is available at [rocfft.readthedocs.io](https://ro
 - Optimized 2D/3D R2C 100 and 1D Z2Z 2500.
 - Reduced number of kernels for 2D/3D sizes where higher dimension is 64, 128, 256.
 
-## [(Unreleased) rocFFT 1.0.11 for ROCm 4.2.0]
+### Fixed
+- Fixed potential crashes in 3D transforms with unusual strides, for
+  SBCC-optimized sizes.
+
+## [rocFFT 1.0.11 for ROCm 4.2.0]
 
 ### Changed
   Move device code into main library.

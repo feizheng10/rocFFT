@@ -32,24 +32,17 @@
 
 #include "rocfft.h"
 
-// Returns 1 for single-precision, 2 for double precision
-inline size_t PrecisionWidth(rocfft_precision precision)
+inline size_t sizeof_precision(rocfft_precision precision)
 {
     switch(precision)
     {
     case rocfft_precision_single:
-        return 1;
+        return 2 * sizeof(float);
     case rocfft_precision_double:
-        return 2;
-    default:
-        assert(false);
-        return 1;
+        return 2 * sizeof(double);
     }
-}
-
-inline size_t Large1DThreshold(rocfft_precision precision)
-{
-    return 4096 / PrecisionWidth(precision);
+    assert(false);
+    return 0;
 }
 
 #define MAX_WORK_GROUP_SIZE 1024
@@ -161,7 +154,7 @@ inline void DetermineSizes(const size_t& length, size_t& workGroupSize, size_t& 
         return;
     }
 
-    size_t baseRadix[]   = {13, 11, 7, 5, 3, 2}; // list only supported primes
+    size_t baseRadix[]   = {17, 13, 11, 7, 5, 3, 2}; // list only supported primes
     size_t baseRadixSize = sizeof(baseRadix) / sizeof(baseRadix[0]);
 
     size_t                   l = length;
@@ -228,6 +221,11 @@ inline void DetermineSizes(const size_t& length, size_t& workGroupSize, size_t& 
     {
         workGroupSize = 169;
         numTrans      = length >= 13 * workGroupSize ? 1 : (13 * workGroupSize) / length;
+    }
+    else if(primeFactorsExpanded[17] == length) // Length is pure power of 17
+    {
+        workGroupSize = 256;
+        numTrans      = 1;
     }
     else
     {

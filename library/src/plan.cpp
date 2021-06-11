@@ -31,6 +31,7 @@
 
 #include <algorithm>
 #include <assert.h>
+#include <functional>
 #include <map>
 #include <numeric>
 #include <set>
@@ -712,8 +713,20 @@ ROCFFT_EXPORT rocfft_status rocfft_repo_get_total_plan_count(size_t* count)
 // Factorisation helpers
 //
 
-inline size_t get_explicity_supported_factor(rocfft_precision precision, size_t length0)
+// Return true if the order of factors in a decomposition should be
+// reversed.  This improves performance for some lengths.
+inline bool reverse_factors(size_t length)
 {
+    std::set<size_t> reverse_factors_lengths = {32256, 43008};
+    return reverse_factors_lengths.count(length) == 1;
+}
+
+// Search function pool for length where is_supported_factor(length) returns true.
+inline size_t search_pool(rocfft_precision            precision,
+                          size_t                      length,
+                          std::function<bool(size_t)> is_supported_factor)
+{
+    // query supported lengths from function pool, largest to smallest
     auto supported  = function_pool::get_lengths(precision, CS_KERNEL_STOCKHAM);
     auto comparison = std::greater<size_t>();
     std::sort(supported.begin(), supported.end(), comparison);
@@ -721,43 +734,44 @@ inline size_t get_explicity_supported_factor(rocfft_precision precision, size_t 
     if(supported.empty())
         return 0;
 
-    size_t factor = 0;
+    // start search slightly smaller than sqrt(length)
+    auto v     = (size_t)sqrt(length);
+    auto lower = std::lower_bound(supported.cbegin(), supported.cend(), v, comparison);
+    if(*lower < sqrt(length))
+        lower--;
 
-    if(length0 > (Large1DThreshold(precision) * Large1DThreshold(precision)))
-    {
-        auto supported_factor = [length0](size_t factor) -> bool {
-            bool is_factor = length0 % factor == 0;
-            return is_factor;
-        };
+    auto upper = supported.cend();
 
-        auto v     = Large1DThreshold(precision);
-        auto lower = std::lower_bound(supported.cbegin(), supported.cend(), v, comparison);
-        auto itr   = std::find_if(lower, supported.cend(), supported_factor);
-        if(itr != supported.cend())
-            factor = *itr;
-    }
-    else
-    {
-        // break into as squarish matrix as possible
-        auto supported_factor = [length0, precision = precision](size_t factor) -> bool {
-            bool is_factor    = length0 % factor == 0;
-            bool have_kernels = function_pool::has_function(fpkey(length0 / factor, precision));
-            return is_factor && have_kernels;
-        };
+    // search!
+    auto itr = std::find_if(lower, upper, is_supported_factor);
+    if(itr != supported.cend())
+        return *itr;
 
-        auto v     = (size_t)sqrt(length0);
-        auto lower = std::lower_bound(supported.cbegin(), supported.cend(), v, comparison);
-        if(*lower < sqrt(length0))
-            lower--;
+    return 0;
+}
 
-        // note: this squarish factorization isn't always the fastest.
-        // for length 18816: if you start at supported.cbegin() the resulting plan is faster
-        auto itr = std::find_if(lower, supported.cend(), supported_factor);
-        if(itr != supported.cend())
-            factor = *itr;
-    }
-
+// Return largest factor that has BOTH functions in the pool.
+inline size_t get_explicitly_supported_factor(rocfft_precision precision, size_t length)
+{
+    auto supported_factor = [length, precision = precision](size_t factor) -> bool {
+        bool is_factor        = length % factor == 0;
+        bool has_other_kernel = function_pool::has_function(fpkey(length / factor, precision));
+        return is_factor && has_other_kernel;
+    };
+    auto factor = search_pool(precision, length, supported_factor);
+    if(factor > 0 && reverse_factors(length))
+        return length / factor;
     return factor;
+}
+
+// Return largest factor that has a function in the pool.
+inline size_t get_largest_supported_factor(rocfft_precision precision, size_t length)
+{
+    auto supported_factor = [length](size_t factor) -> bool {
+        bool is_factor = length % factor == 0;
+        return is_factor;
+    };
+    return search_pool(precision, length, supported_factor);
 }
 
 inline bool SupportedLength(rocfft_precision precision, size_t len)
@@ -766,8 +780,7 @@ inline bool SupportedLength(rocfft_precision precision, size_t len)
     if(function_pool::has_function(fpkey(len, precision)))
         return true;
 
-    // can we factor with 2, 3, or 5?  note: all combinations of these
-    // are explicitly generated at build time
+    // can we factor with using only base radix?
     size_t p = len;
     while(!(p % 2))
         p /= 2;
@@ -775,6 +788,14 @@ inline bool SupportedLength(rocfft_precision precision, size_t len)
         p /= 3;
     while(!(p % 5))
         p /= 5;
+    while(!(p % 7))
+        p /= 7;
+    while(!(p % 11))
+        p /= 11;
+    while(!(p % 13))
+        p /= 13;
+    while(!(p % 17))
+        p /= 17;
 
     if(p == 1)
         return true;
@@ -784,7 +805,7 @@ inline bool SupportedLength(rocfft_precision precision, size_t len)
         return true;
 
     // finally, can we factor this length with combinations of existing kernels?
-    if(get_explicity_supported_factor(precision, len) > 0)
+    if(get_explicitly_supported_factor(precision, len) > 0)
         return true;
 
     return false;
@@ -1635,15 +1656,6 @@ void TreeNode::build_real_even_3D()
     }
 }
 
-size_t TreeNode::div1DNoPo2(const size_t length0)
-{
-    auto factor = get_explicity_supported_factor(precision, length0);
-    // return 0 means we can't find any supported kernels,
-    // happens when debugging, we don't want this assert crash the program
-    //assert(factor != 0);
-    return (factor > 0) ? length0 / factor : 0;
-}
-
 // Compute the large twd decomposition base
 // 2-Steps:
 //  e.g., ( CeilPo2(10000)+ 1 ) / 2 , returns 7 : (2^7)*(2^7) = 16384 >= 10000
@@ -1669,9 +1681,7 @@ void TreeNode::build_1D()
         return;
     }
 
-    // single: limit up to 4096, double: up to 2048
-    if(length[0] <= Large1DThreshold(precision)
-       && function_pool::has_function(fpkey(length[0], precision)))
+    if(function_pool::has_function(fpkey(length[0], precision)))
     {
         scheme = CS_KERNEL_STOCKHAM;
         return;
@@ -1683,10 +1693,13 @@ void TreeNode::build_1D()
     if(IsPo2(length[0])) // multiple kernels involving transpose
     {
         // TODO: wrap the below into a function and check with LDS size
-        if(length[0] <= 262144 / PrecisionWidth(precision))
+        auto block_threshold = 262144;
+        if(precision == rocfft_precision_double)
+            block_threshold /= 2;
+        if(length[0] <= block_threshold)
         {
             // Enable block compute under these conditions
-            if(1 == PrecisionWidth(precision))
+            if(precision == rocfft_precision_single)
             {
                 if(map1DLengthSingle.find(length[0]) != map1DLengthSingle.end())
                 {
@@ -1710,13 +1723,13 @@ void TreeNode::build_1D()
             }
             // up to 256cc + 256rc for the 1arge-1D, use CRT for even larger
             scheme = (length[0] <= 65536) ? CS_L1D_CC : CS_L1D_CRT;
-            // scheme = (length[0] <= 65536 / PrecisionWidth(precision)) ? CS_L1D_CC : CS_L1D_CRT;
         }
         else
         {
-            if(length[0] > (Large1DThreshold(precision) * Large1DThreshold(precision)))
+            auto largest = function_pool::get_largest_length(precision);
+            if(length[0] > largest * largest)
             {
-                divLength1 = length[0] / Large1DThreshold(precision);
+                divLength1 = length[0] / largest;
             }
             else
             {
@@ -1762,9 +1775,19 @@ void TreeNode::build_1D()
 
         if(failed)
         {
-            divLength1 = div1DNoPo2(length[0]);
             scheme     = CS_L1D_TRTRT;
-            failed     = (divLength1 == 0);
+            divLength1 = get_explicitly_supported_factor(precision, length[0]);
+            if(divLength1 == 0)
+            {
+                // We need to recurse.  Note, for CS_L1D_TRTRT,
+                // divLength0 has to be explictly supported
+                auto divLength0 = get_largest_supported_factor(precision, length[0]);
+                if(divLength0 == 0)
+                    divLength1 = 0;
+                else
+                    divLength1 = length[0] / divLength0;
+            }
+            failed = divLength1 == 0;
         }
     }
 
@@ -1885,12 +1908,6 @@ void TreeNode::build_1DBluestein()
 
 void TreeNode::build_1DCS_L1D_TRTRT(const size_t divLength0, const size_t divLength1)
 {
-    if(!function_pool::has_function(fpkey(divLength0, precision)))
-    {
-        PrintFailInfo(precision, length[0], scheme, divLength0, CS_KERNEL_STOCKHAM);
-        assert(false);
-    }
-
     // first transpose
     auto trans1Plan = TreeNode::CreateNode(this);
 
@@ -1960,7 +1977,11 @@ void TreeNode::build_1DCS_L1D_TRTRT(const size_t divLength0, const size_t divLen
     }
 
     // algorithm is set up in a way that row2 does not recurse
-    assert(divLength0 <= Large1DThreshold(this->precision));
+    if(!function_pool::has_function(fpkey(divLength0, precision)))
+    {
+        PrintFailInfo(precision, divLength0, scheme);
+        assert(false);
+    }
 
     childNodes.emplace_back(std::move(row2Plan));
 
@@ -2485,6 +2506,26 @@ void TreeNode::TraverseTreeAssignBuffersLogicA(TraverseState&   state,
             flipIn   = OB_TEMP_BLUESTEIN;
             flipOut  = OB_TEMP;
             obOutBuf = OB_TEMP_BLUESTEIN;
+            break;
+        case CS_REAL_TRANSFORM_EVEN:
+        case CS_REAL_2D_EVEN:
+        case CS_REAL_3D_EVEN:
+            // for R2C transform, output side is complex so we can
+            // flip into the output buffer
+            if(direction == -1)
+            {
+                flipIn   = OB_USER_OUT;
+                flipOut  = OB_TEMP;
+                obOutBuf = OB_USER_OUT;
+            }
+            // for C2R transform, input side is complex so we can
+            // flip into the input buffer
+            else
+            {
+                flipIn   = placement == rocfft_placement_inplace ? OB_USER_OUT : OB_USER_IN;
+                flipOut  = OB_TEMP;
+                obOutBuf = OB_USER_OUT;
+            }
             break;
         default:
             flipIn   = OB_USER_OUT;
@@ -4712,8 +4753,6 @@ void TreeNode::assign_params_CS_3D_RC_STRAIGHT()
     auto& zPlan  = childNodes[1];
 
     // B -> B
-    assert((xyPlan->obOut == OB_USER_OUT) || (xyPlan->obOut == OB_TEMP_CMPLX_FOR_REAL)
-           || (xyPlan->obOut == OB_TEMP_BLUESTEIN));
     xyPlan->inStride = inStride;
     xyPlan->iDist    = iDist;
 
@@ -4723,8 +4762,6 @@ void TreeNode::assign_params_CS_3D_RC_STRAIGHT()
     xyPlan->TraverseTreeAssignParamsLogicA();
 
     // B -> B
-    assert((zPlan->obOut == OB_USER_OUT) || (zPlan->obOut == OB_TEMP_CMPLX_FOR_REAL)
-           || (zPlan->obOut == OB_TEMP_BLUESTEIN));
     zPlan->inStride.push_back(inStride[2]);
     zPlan->inStride.push_back(inStride[0]);
     zPlan->inStride.push_back(inStride[1]);
@@ -4952,16 +4989,42 @@ static rocfft_result_placement EffectivePlacement(OperatingBuffer         obIn,
     return obIn == obOut ? rocfft_placement_inplace : rocfft_placement_notinplace;
 }
 
+static size_t TransformsPerThreadblock(const size_t len, rocfft_precision precision)
+{
+    // look in function pool first to see if it knows
+    auto k = function_pool::get_kernel(fpkey(len, precision));
+    if(k.batches_per_block)
+        return k.batches_per_block;
+    // otherwise fall back to old generator
+    size_t wgs = 0, numTrans = 0;
+    DetermineSizes(len, wgs, numTrans);
+    return numTrans;
+}
+
 void Optimize_Transpose_With_Strides(ExecPlan& execPlan, std::vector<TreeNode*>& execSeq)
 {
+    auto canOptimizeWithStrides = [](TreeNode* stockham) {
+        // for 3D pow2 sizes, manipulating strides looks like it loses to
+        // diagonal transpose
+        if(IsPo2(stockham->length[0]) && stockham->length.size() >= 3)
+            return false;
+        size_t numTrans = TransformsPerThreadblock(stockham->length[0], stockham->precision);
+
+        // ensure we are doing enough rows to coalesce properly. 4
+        // seems to be enough for double-precision, whereas some
+        // sizes that do 7 rows seem to be slower for single.
+        size_t minRows = stockham->precision == rocfft_precision_single ? 8 : 4;
+        return numTrans >= minRows;
+    };
+
     // If this is a stockham fft that does multiple rows in one
-    // kernel, followed by a 2d transpose, adjust output strides to
+    // kernel, followed by a transpose, adjust output strides to
     // replace the transpose.  Multiple rows will ensure that the
     // transposed column writes are coalesced.
     for(auto it = execSeq.begin(); it != execSeq.end(); ++it)
     {
         auto stockham = *it;
-        if(stockham->scheme != CS_KERNEL_STOCKHAM)
+        if(stockham->scheme != CS_KERNEL_STOCKHAM && stockham->scheme != CS_KERNEL_2D_SINGLE)
             continue;
 
         // if we're a child of a plan that we know is doing TR
@@ -4974,17 +5037,19 @@ void Optimize_Transpose_With_Strides(ExecPlan& execPlan, std::vector<TreeNode*>&
                || (parent->scheme == CS_REAL_2D_EVEN && parent->direction == 1))
                 continue;
         }
-        size_t wgs, numTrans;
-        DetermineSizes(stockham->length[0], wgs, numTrans);
-        if(numTrans < 2)
+
+        if(!canOptimizeWithStrides(stockham))
             continue;
 
         auto next = it + 1;
         if(next == execSeq.end())
             break;
         auto transpose = *next;
-        if(transpose->scheme == CS_KERNEL_TRANSPOSE
-           && stockham->length == transpose->length
+        if(transpose->scheme != CS_KERNEL_TRANSPOSE && transpose->scheme != CS_KERNEL_TRANSPOSE_Z_XY
+           && transpose->scheme != CS_KERNEL_TRANSPOSE_XY_Z)
+            continue;
+        if(stockham->length == transpose->length
+           && stockham->outStride == transpose->inStride
            // can't get rid of a transpose that also does twiddle multiplication
            && transpose->large1D == 0
            // This is a transpose, which must be out-of-place
@@ -4992,16 +5057,40 @@ void Optimize_Transpose_With_Strides(ExecPlan& execPlan, std::vector<TreeNode*>&
                   == rocfft_placement_notinplace)
         {
             stockham->outStride = transpose->outStride;
-            std::swap(stockham->outStride[0], stockham->outStride[1]);
+            if(transpose->scheme == CS_KERNEL_TRANSPOSE)
+            {
+                std::swap(stockham->outStride[0], stockham->outStride[1]);
+            }
+            else if(transpose->scheme == CS_KERNEL_TRANSPOSE_Z_XY)
+            {
+                // make stockham write Z_XY-transposed outputs
+                stockham->outStride[0] = transpose->outStride[2];
+                stockham->outStride[1] = transpose->outStride[0];
+                stockham->outStride[2] = transpose->outStride[1];
+            }
+            else
+            {
+                // make stockham write XY_Z-transposed outputs
+                stockham->outStride[0] = transpose->outStride[1];
+                stockham->outStride[1] = transpose->outStride[2];
+                stockham->outStride[2] = transpose->outStride[0];
+            }
             stockham->obOut        = transpose->obOut;
             stockham->outArrayType = transpose->outArrayType;
             stockham->placement    = rocfft_placement_notinplace;
             stockham->oDist        = transpose->oDist;
+
+            stockham->comments.push_back("removed following " + PrintScheme(transpose->scheme)
+                                         + " using strides");
             RemoveNode(execPlan, transpose);
         }
     }
 
-    // Similarly, if we have a 2D transpose followed by a stockham
+    // In case something was removed, reset our local execSeq so we
+    // don't try to combine an already-removed node with anything
+    execSeq = execPlan.execSeq;
+
+    // Similarly, if we have a transpose followed by a stockham
     // fft that does multiple rows in one kernel, adjust input
     // strides to replace the transpose.  Multiple rows will ensure
     // that the transposed column reads are coalesced.
@@ -5009,7 +5098,10 @@ void Optimize_Transpose_With_Strides(ExecPlan& execPlan, std::vector<TreeNode*>&
     {
         auto transpose = *it;
         // can't get rid of a transpose that also does twiddle multiplication
-        if(transpose->scheme != CS_KERNEL_TRANSPOSE || transpose->large1D != 0)
+        if((transpose->scheme != CS_KERNEL_TRANSPOSE
+            && transpose->scheme != CS_KERNEL_TRANSPOSE_Z_XY
+            && transpose->scheme != CS_KERNEL_TRANSPOSE_XY_Z)
+           || transpose->large1D != 0)
             continue;
 
         auto next = it + 1;
@@ -5020,9 +5112,25 @@ void Optimize_Transpose_With_Strides(ExecPlan& execPlan, std::vector<TreeNode*>&
         if(stockham->scheme != CS_KERNEL_STOCKHAM)
             continue;
 
-        size_t wgs, numTrans;
-        DetermineSizes(stockham->length[0], wgs, numTrans);
-        if(numTrans < 2)
+        if(!canOptimizeWithStrides(stockham))
+            continue;
+
+        // verify that the transpose output lengths match the FFT input lengths
+        auto transposeOutputLengths = transpose->length;
+        if(transpose->scheme == CS_KERNEL_TRANSPOSE)
+            std::swap(transposeOutputLengths[0], transposeOutputLengths[1]);
+        else if(transpose->scheme == CS_KERNEL_TRANSPOSE_Z_XY)
+        {
+            std::swap(transposeOutputLengths[0], transposeOutputLengths[1]);
+            std::swap(transposeOutputLengths[1], transposeOutputLengths[2]);
+        }
+        else
+        {
+            // must be XY_Z
+            std::swap(transposeOutputLengths[1], transposeOutputLengths[2]);
+            std::swap(transposeOutputLengths[0], transposeOutputLengths[1]);
+        }
+        if(transposeOutputLengths != stockham->length)
             continue;
 
         // This is a transpose, which must be out-of-place
@@ -5030,11 +5138,33 @@ void Optimize_Transpose_With_Strides(ExecPlan& execPlan, std::vector<TreeNode*>&
            == rocfft_placement_notinplace)
         {
             stockham->inStride = transpose->inStride;
-            std::swap(stockham->inStride[0], stockham->inStride[1]);
+            if(transpose->scheme == CS_KERNEL_TRANSPOSE)
+                std::swap(stockham->inStride[0], stockham->inStride[1]);
+            else if(transpose->scheme == CS_KERNEL_TRANSPOSE_Z_XY)
+            {
+                // give stockham kernel Z_XY-transposed inputs and outputs
+                stockham->inStride[0] = transpose->inStride[1];
+                stockham->inStride[1] = transpose->inStride[0];
+                stockham->inStride[2] = transpose->inStride[2];
+
+                std::swap(stockham->outStride[1], stockham->outStride[2]);
+                std::swap(stockham->length[1], stockham->length[2]);
+            }
+            else
+            {
+                // give stockham kernel XY_Z-transposed inputs
+                stockham->inStride[0] = transpose->inStride[2];
+                stockham->inStride[1] = transpose->inStride[0];
+                stockham->inStride[2] = transpose->inStride[1];
+            }
+
             stockham->obIn        = transpose->obIn;
             stockham->inArrayType = transpose->inArrayType;
             stockham->placement   = rocfft_placement_notinplace;
             stockham->iDist       = transpose->iDist;
+
+            stockham->comments.push_back("removed preceding " + PrintScheme(transpose->scheme)
+                                         + " using strides");
             RemoveNode(execPlan, transpose);
         }
     }

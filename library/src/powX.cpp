@@ -193,7 +193,7 @@ bool PlanPowX(ExecPlan& execPlan)
                 gp.b_x   = (batch + kernel.batches_per_block - 1) / kernel.batches_per_block;
                 gp.tpb_x = kernel.threads_per_block;
 
-                lds = execPlan.execSeq[i]->length[0] * kernel.batches_per_block;
+                lds = (execPlan.execSeq[i]->length[0] + lds_padding) * kernel.batches_per_block;
             }
             else
             {
@@ -422,8 +422,7 @@ bool PlanPowX(ExecPlan& execPlan)
             assert(false);
         }
 
-        gp.lds_bytes = (lds + lds_padding * bwd) * PrecisionWidth(execPlan.execSeq[0]->precision)
-                       * sizeof(float2);
+        gp.lds_bytes = (lds + lds_padding * bwd) * sizeof_precision(execPlan.execSeq[0]->precision);
         execPlan.execSeq[i]->lds_padding = lds_padding;
         execPlan.devFnCall.push_back(ptr);
         execPlan.gridParam.push_back(gp);
