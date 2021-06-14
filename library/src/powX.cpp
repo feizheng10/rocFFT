@@ -166,8 +166,12 @@ bool PlanPowX(ExecPlan& execPlan)
 
     for(size_t i = 0; i < execPlan.execSeq.size(); i++)
     {
-        DevFnCall    ptr = nullptr;
-        GridParam    gp;
+        DevFnCall ptr = nullptr;
+        GridParam gp;
+
+        // NB:
+        //   bwd stands for blockwidth, which is equivalent to kernel.batches_per_block in new code-gen.
+        //   We should replace it with kernel.batches_per_block all after transition to new code-gen.
         size_t       bwd         = 1;
         size_t       wgs         = 0;
         size_t       lds         = 0;
@@ -194,6 +198,7 @@ bool PlanPowX(ExecPlan& execPlan)
                 gp.tpb_x = kernel.threads_per_block;
 
                 lds = (execPlan.execSeq[i]->length[0] + lds_padding) * kernel.batches_per_block;
+                bwd = kernel.batches_per_block;
             }
             else
             {
@@ -203,6 +208,7 @@ bool PlanPowX(ExecPlan& execPlan)
                 gp.b_x   = (batch % numTransforms) ? 1 + (batch / numTransforms)
                                                    : (batch / numTransforms);
                 gp.tpb_x = workGroupSize;
+                bwd      = numTransforms;
             }
         }
         break;
