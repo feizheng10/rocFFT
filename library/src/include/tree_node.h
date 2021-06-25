@@ -31,7 +31,7 @@
 #include "../device/kernels/callback.h"
 #include "../device/kernels/common.h"
 #include "kargs.h"
-#include "rocfft_ostream.hpp"
+#include "rtc.h"
 #include "twiddles.h"
 #include <hip/hip_runtime_api.h>
 
@@ -165,6 +165,8 @@ struct NodeMetaData
     NodeMetaData(TreeNode* refNode);
 };
 
+class rocfft_ostream;
+
 class TreeNode
 {
     friend class NodeFactory;
@@ -256,6 +258,10 @@ public:
     // to the node
     std::vector<std::string> comments;
 
+    // runtime-compiled kernels for this node
+    std::unique_ptr<RTCKernel> compiledKernel;
+    std::unique_ptr<RTCKernel> compiledKernelWithCallbacks;
+
 public:
     // Disallow copy constructor:
     TreeNode(const TreeNode&) = delete;
@@ -321,7 +327,7 @@ public:
                                         size_t&                 chirpSize);
 
     // Output plan information for debug purposes:
-    void Print(rocfft_ostream& os = rocfft_cout, int indent = 0) const;
+    void Print(rocfft_ostream& os, int indent = 0) const;
 
     // logic B - using in-place transposes, todo
     //void RecursiveBuildTreeLogicB();

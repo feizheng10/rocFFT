@@ -29,6 +29,7 @@
 #include "rocfft-version.h"
 #include "rocfft.h"
 #include "rocfft_ostream.hpp"
+#include "rtc.h"
 
 #include <algorithm>
 #include <assert.h>
@@ -460,7 +461,15 @@ rocfft_status rocfft_plan_create_internal(rocfft_plan                   plan,
     // }
 
     // add this plan into repo, incurs computation, see repo.cpp
-    return Repo::GetRepo().CreatePlan(p);
+    try
+    {
+        return Repo::GetRepo().CreatePlan(p);
+    }
+    catch(std::exception& e)
+    {
+        std::cerr << e.what() << std::endl;
+        return rocfft_status_failure;
+    }
 }
 
 rocfft_status rocfft_plan_allocate(rocfft_plan* plan)
@@ -1739,6 +1748,12 @@ static void OptimizePlan(ExecPlan& execPlan)
     }
 }
 
+void RuntimeCompilePlan(ExecPlan& execPlan)
+{
+    for(auto& node : execPlan.execSeq)
+        node->compiledKernel = RTCKernel::runtime_compile(*node, execPlan.deviceProp.gcnArchName);
+}
+
 void ProcessNode(ExecPlan& execPlan)
 {
     execPlan.rootPlan->RecursiveBuildTree();
@@ -1773,6 +1788,9 @@ void ProcessNode(ExecPlan& execPlan)
         execPlan.execSeq, tmpBufSize, cmplxForRealSize, blueSize, chirpSize);
 
     OptimizePlan(execPlan);
+
+    // compile kernels for applicable nodes
+    RuntimeCompilePlan(execPlan);
 
     execPlan.workBufSize      = tmpBufSize + cmplxForRealSize + blueSize + chirpSize;
     execPlan.tmpWorkBufSize   = tmpBufSize;
