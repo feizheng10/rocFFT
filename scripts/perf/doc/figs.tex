@@ -1,0 +1,172 @@
+\documentclass[12pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{url}
+\begin{document}
+
+\section{Introduction}
+Each data point represents the median of 30 values, with error bars showing the 95\% confidence interval for the median.  All transforms are double-precision.
+
+\vspace{1cm}
+
+\section{Device Specification}
+
+\subsection{dir0}
+\noindent Host info:\begin{itemize}
+\item \verb|    hostname:       hpe-sjc2-08|
+\item \verb|    cpu info:       AMD EPYC 7542 32-Core Processor|
+\item \verb|    ram:            503.70 GiB|
+\item \verb|    distro:         Ubuntu 18.04.5 LTS|
+\item \verb|    kernel version: 4.15.0-128-generic|
+\item \verb|    rocm version:   4.3.0-7235|
+\end{itemize}
+Device info:\begin{itemize}
+\item \verb|    device:            None|
+\item \verb|    vbios version:     113-D3430401-E35|
+\item \verb|    vram:              31.98 GiB|
+\item \verb|    performance level: high|
+\item \verb|    system clock:      1502Mhz|
+\item \verb|    memory clock:      1200Mhz|
+\end{itemize}
+
+
+\subsection{dir1}
+\noindent Host info:\begin{itemize}
+\item \verb|    hostname:       hpe-sjc2-08|
+\item \verb|    cpu info:       AMD EPYC 7542 32-Core Processor|
+\item \verb|    ram:            503.70 GiB|
+\item \verb|    distro:         Ubuntu 18.04.5 LTS|
+\item \verb|    kernel version: 4.15.0-128-generic|
+\item \verb|    rocm version:   4.3.0-7235|
+\end{itemize}
+Device info:\begin{itemize}
+\item \verb|    device:            None|
+\item \verb|    vbios version:     113-D3430401-E35|
+\item \verb|    vram:              31.98 GiB|
+\item \verb|    performance level: high|
+\item \verb|    system clock:      1502Mhz|
+\item \verb|    memory clock:      1200Mhz|
+\end{itemize}
+
+\clearpage
+
+\section{Figures}
+
+\centering
+\begin{figure}[htbp]
+   \includegraphics[width=\textwidth]{1d_c2cinplace_double.pdf}
+   \caption{1D complex transforms in-place}
+\end{figure}
+\clearpage
+
+\centering
+\begin{figure}[htbp]
+   \includegraphics[width=\textwidth]{1d_c2coutofplace_double.pdf}
+   \caption{1D complex transforms out-of-place}
+\end{figure}
+
+\centering
+\begin{figure}[htbp]
+   \includegraphics[width=\textwidth]{1d_r2cinplace_double.pdf}
+   \caption{1D real-to-complex transforms in-place}
+\end{figure}
+\clearpage
+
+\centering
+\begin{figure}[htbp]
+   \includegraphics[width=\textwidth]{1d_r2coutofplace_double.pdf}
+   \caption{1D real-to-complex transforms out-of-place}
+\end{figure}
+
+\centering
+\begin{figure}[htbp]
+   \includegraphics[width=\textwidth]{1d_c2rinplace_double.pdf}
+   \caption{1D complex-to-real transforms in-place}
+\end{figure}
+\clearpage
+
+\centering
+\begin{figure}[htbp]
+   \includegraphics[width=\textwidth]{1d_c2routofplace_double.pdf}
+   \caption{1D complex-to-real transforms out-of-place}
+\end{figure}
+
+\centering
+\begin{figure}[htbp]
+   \includegraphics[width=\textwidth]{2d_c2cinplace_double.pdf}
+   \caption{2D complex transforms in-place}
+\end{figure}
+\clearpage
+
+\centering
+\begin{figure}[htbp]
+   \includegraphics[width=\textwidth]{2d_c2coutofplace_double.pdf}
+   \caption{2D complex transforms out-of-place}
+\end{figure}
+
+\centering
+\begin{figure}[htbp]
+   \includegraphics[width=\textwidth]{2d_r2cinplace_double.pdf}
+   \caption{2D real-to-complex transforms in-place}
+\end{figure}
+\clearpage
+
+\centering
+\begin{figure}[htbp]
+   \includegraphics[width=\textwidth]{2d_r2coutofplace_double.pdf}
+   \caption{2D real-to-complex transforms out-of-place}
+\end{figure}
+
+\centering
+\begin{figure}[htbp]
+   \includegraphics[width=\textwidth]{2d_c2rinplace_double.pdf}
+   \caption{2D complex-to-real transforms in-place}
+\end{figure}
+\clearpage
+
+\centering
+\begin{figure}[htbp]
+   \includegraphics[width=\textwidth]{2d_c2routofplace_double.pdf}
+   \caption{2D complex-to-real transforms out-of-place}
+\end{figure}
+
+\centering
+\begin{figure}[htbp]
+   \includegraphics[width=\textwidth]{3d_c2cinplace_double.pdf}
+   \caption{3D complex transforms in-place}
+\end{figure}
+\clearpage
+
+\centering
+\begin{figure}[htbp]
+   \includegraphics[width=\textwidth]{3d_c2coutofplace_double.pdf}
+   \caption{3D complex transforms out-of-place}
+\end{figure}
+
+\centering
+\begin{figure}[htbp]
+   \includegraphics[width=\textwidth]{3d_r2cinplace_double.pdf}
+   \caption{3D real-to-complex transforms in-place}
+\end{figure}
+\clearpage
+
+\centering
+\begin{figure}[htbp]
+   \includegraphics[width=\textwidth]{3d_r2coutofplace_double.pdf}
+   \caption{3D real-to-complex transforms out-of-place}
+\end{figure}
+
+\centering
+\begin{figure}[htbp]
+   \includegraphics[width=\textwidth]{3d_c2rinplace_double.pdf}
+   \caption{3D complex-to-real transforms in-place}
+\end{figure}
+\clearpage
+
+\centering
+\begin{figure}[htbp]
+   \includegraphics[width=\textwidth]{3d_c2routofplace_double.pdf}
+   \caption{3D complex-to-real transforms out-of-place}
+\end{figure}
+
+\end{document}

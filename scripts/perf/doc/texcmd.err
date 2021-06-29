@@ -1,0 +1,22 @@
+Rc files read:
+  NONE
+Latexmk: This is Latexmk, John Collins, 29 September 2020, version: 4.70b.
+Rule 'pdflatex': The following rules & subrules became out-of-date:
+      'pdflatex'
+------------
+Run number 1 of rule 'pdflatex'
+------------
+------------
+Running 'pdflatex  -recorder  "figs.tex"'
+------------
+Latexmk: Log file says output to 'figs.pdf'
+Rule 'pdflatex': File changes, etc:
+   Changed files, or newly in use since previous run(s):
+      'figs.aux'
+------------
+Run number 2 of rule 'pdflatex'
+------------
+------------
+Running 'pdflatex  -recorder  "figs.tex"'
+------------
+Latexmk: Log file says output to 'figs.pdf'

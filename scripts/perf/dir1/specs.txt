@@ -1,0 +1,14 @@
+Host info:
+    hostname:       hpe-sjc2-08
+    cpu info:       AMD EPYC 7542 32-Core Processor
+    ram:            503.70 GiB
+    distro:         Ubuntu 18.04.5 LTS
+    kernel version: 4.15.0-128-generic
+    rocm version:   4.3.0-7235
+Device info:
+    device:            None
+    vbios version:     113-D3430401-E35
+    vram:              31.98 GiB
+    performance level: high
+    system clock:      1502Mhz
+    memory clock:      1200Mhz

@@ -31,7 +31,7 @@ from generator import (ArgumentList, BaseNode, Call, CommentBlock, ExternC, Func
 
 import stockham
 
-supported_large = [50, 64, 81, 100, 128, 200, 256, 336]
+supported_large = [50, 56,64, 81, 100, 128, 200, 256, 336]
 old_gen_supported_large = [50, 64, 81, 100, 128, 200, 256]
 
 #
@@ -655,6 +655,7 @@ def list_new_large_kernels():
            'sp': 'true',  'dp': 'true'}, threads_per_block=256),
         NS(length=64,  factors=[8, 8],       use_3steps_large_twd={
            'sp': 'true',  'dp': 'false'}),
+        NS(length=56,  factors=[8, 7],       use_3steps_large_twd={'sp': 'true',  'dp': 'false'}),
         NS(length=81,  factors=[3, 3, 3, 3], use_3steps_large_twd={
            'sp': 'true',  'dp': 'true'}),
         # NS(length=100, factors=[5, 5, 4],    use_3steps_large_twd={'sp': 'true',  'dp': 'false'}),
@@ -906,7 +907,7 @@ def cli():
         expand_sizes['large'][p], new_larges = pick(
             expand_sizes['large'][p], supported_new_large_kernels, subtract_from_all=False)
         # remove unsupported length in old_gen
-        for length, __ in expand_sizes['large'][p].items():
+        for length in list(expand_sizes['large'][p]):
             if length not in old_gen_supported_large:
                 del expand_sizes['large'][p][length]
         new_small_kernels = merge_length(new_small_kernels, new_smalls)

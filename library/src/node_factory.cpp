@@ -471,6 +471,8 @@ ComputeScheme NodeFactory::Decide3DScheme(NodeMetaData& nodeData)
     // multi-dimension cases and small 2d, 3d within one kernel
     bool MultiDimFuseKernelsAvailable = false;
 
+    return CS_3D_BLOCK_CR;
+    
     if(use_CS_3D_RC(nodeData))
     {
         return CS_3D_RC;
