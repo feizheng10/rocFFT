@@ -31,7 +31,7 @@ from generator import (ArgumentList, BaseNode, Call, CommentBlock, ExternC, Func
 
 import stockham
 
-supported_large = [50, 56,64, 81, 100, 128, 200, 256, 336]
+supported_large = [50, 56, 64, 81, 100, 128, 200, 256, 336]
 old_gen_supported_large = [50, 64, 81, 100, 128, 200, 256]
 
 #
@@ -655,7 +655,8 @@ def list_new_large_kernels():
            'sp': 'true',  'dp': 'true'}, threads_per_block=256),
         NS(length=64,  factors=[8, 8],       use_3steps_large_twd={
            'sp': 'true',  'dp': 'false'}),
-        NS(length=56,  factors=[8, 7],       use_3steps_large_twd={'sp': 'true',  'dp': 'false'}),
+        NS(length=56,  factors=[8, 7],       use_3steps_large_twd={
+           'sp': 'true',  'dp': 'false'}),
         NS(length=81,  factors=[3, 3, 3, 3], use_3steps_large_twd={
            'sp': 'true',  'dp': 'true'}),
         # NS(length=100, factors=[5, 5, 4],    use_3steps_large_twd={'sp': 'true',  'dp': 'false'}),
@@ -665,7 +666,7 @@ def list_new_large_kernels():
            'sp': 'false', 'dp': 'false'}),
         NS(length=256, factors=[4, 4, 4, 4], use_3steps_large_twd={
            'sp': 'true',  'dp': 'false'}),
-        NS(length=336, factors=[6, 7, 8],    use_3steps_large_twd={
+        NS(length=336, factors=[7, 8, 6],    use_3steps_large_twd={
            'sp': 'false', 'dp': 'false'})
     ]
 
